@@ -84,8 +84,9 @@ npm run dev          # Vite frontend only (http://localhost:5173)
 npx tauri dev        # Full Tauri desktop app (Rust backend + React UI)
 ```
 
-> **Note on local port:** `cloud-relay` defaults to `PORT=3000`, while the Kiosk SQLite database seeds `relay_url` as `http://localhost:3001`. Either set `PORT=3001` in `cloud-relay/.env` or update **Cloud Relay URL** to `http://localhost:3000` inside **Owner Settings**.
+> **Note on local port:** Both `cloud-relay` (`PORT=3000` in `.env`) and `desktop-kiosk` (seeded `relay_url` = `http://localhost:3000` in SQLite) default to `http://localhost:3000`, so they connect automatically out of the box. For mobile QR-code testing on the same Wi-Fi, set **Cloud Relay URL** in **Owner Settings** (or during Step 3 of First-Run Setup) to your computer's LAN IP (e.g., `http://192.168.1.50:3000`), or use a public `https://` URL for production.
 
+- On first launch, the **3-step First-Run Setup Wizard** guides you through setting an Owner Password, saving your 12-word recovery phrase, and configuring your printer, pricing, and Cloud Relay URL. If existing JetPrint data is detected on a reinstall, a prompt lets you choose **Keep Previous Data** or **Start Fresh**.
 - Run Rust backend tests: `cd desktop-kiosk/src-tauri && cargo test`
 - Build frontend bundle: `cd desktop-kiosk && npm run build`
 

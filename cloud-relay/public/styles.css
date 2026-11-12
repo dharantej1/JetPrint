@@ -146,6 +146,16 @@ body {
   font-size: 0.95rem;
 }
 
+.lookup-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lookup-actions .btn {
+  flex: 1;
+}
+
 .pricing-bar {
   display: flex;
   justify-content: space-between;
@@ -680,6 +690,10 @@ body {
   border-color: rgba(239, 68, 68, 0.5);
 }
 
+.otp-card.cancelled {
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
 .otp-status-badge {
   display: inline-block;
   font-size: 0.76rem;
@@ -699,6 +713,46 @@ body {
 .otp-status-badge.failed {
   background: rgba(239, 68, 68, 0.18);
   color: #fca5a5;
+}
+
+.otp-status-badge.cancelled {
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+
+.otp-docs-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 8px;
+  text-align: left;
+}
+
+.otp-doc-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.otp-doc-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.otp-doc-meta {
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .otp-display {
@@ -787,4 +841,79 @@ body {
 
 [hidden] {
   display: none !important;
+}
+
+/* Responsive Layout */
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .app-shell {
+    max-width: 960px;
+    padding: 20px 24px 110px;
+  }
+
+  .container {
+    gap: 20px;
+  }
+
+  .active-otp-stack {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 16px;
+    margin-bottom: 0;
+  }
+
+  .active-otp-stack .otp-card {
+    margin-bottom: 0;
+  }
+
+  .pricing-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    text-align: center;
+    padding: 14px 18px;
+    font-size: 0.95rem;
+  }
+
+  .dropzone {
+    padding: 52px 24px;
+  }
+
+  #workspaceSection {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .carousel-stage {
+    justify-content: center;
+    gap: 32px;
+  }
+
+  .seg-btn {
+    padding: 11px 8px;
+    font-size: 0.88rem;
+  }
+
+  .sticky-footer {
+    max-width: 960px;
+    padding: 14px 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    max-width: 1160px;
+    padding: 24px 32px 116px;
+  }
+
+  .sticky-footer {
+    max-width: 1160px;
+    padding: 16px 32px;
+  }
 }

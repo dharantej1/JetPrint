@@ -50,12 +50,58 @@ export async function verifyOtpAndPrint(otp: string): Promise<PrintResult> {
   return invoke<PrintResult>("verify_otp_and_print", { otp });
 }
 
-export async function listJobs(limit?: number): Promise<PrintJob[]> {
-  return invoke<PrintJob[]>("list_jobs", { limit });
+export async function cancelJob(jobId: string): Promise<PrintJob> {
+  return invoke<PrintJob>("cancel_job", { jobId });
+}
+
+export async function listJobs(
+  limit?: number,
+  date?: string
+): Promise<PrintJob[]> {
+  return invoke<PrintJob[]>("list_jobs", { limit, date });
 }
 
 export async function connectRelay(relayUrl?: string): Promise<KioskState> {
   return invoke<KioskState>("connect_relay", { relayUrl });
+}
+
+export async function keepExistingData(): Promise<KioskState> {
+  return invoke<KioskState>("keep_existing_data");
+}
+
+export async function resetInstallationData(): Promise<KioskState> {
+  return invoke<KioskState>("reset_installation_data");
+}
+
+export async function pickStorageFolder(): Promise<string | null> {
+  return invoke<string | null>("pick_storage_folder");
+}
+
+export async function setStoragePath(path: string): Promise<KioskState> {
+  return invoke<KioskState>("set_storage_path", { path });
+}
+
+export function resolveStoragePreviewPath(rawPath: string): string {
+  const trimmed = rawPath.trim().replace(/[\\/]+$/, "");
+  if (!trimmed) return "";
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  if (parts[parts.length - 1] === "JetPrint KIOSK") {
+    return trimmed;
+  }
+  const sep = trimmed.includes("\\") && !trimmed.includes("/") ? "\\" : "/";
+  return `${trimmed}${sep}JetPrint KIOSK`;
+}
+
+export async function getLogs(limit?: number): Promise<string[]> {
+  return invoke<string[]>("get_logs", { limit });
+}
+
+export async function clearLogs(): Promise<void> {
+  return invoke<void>("clear_logs");
+}
+
+export async function openLogsWindow(): Promise<void> {
+  return invoke<void>("open_logs_window");
 }
 
 export async function checkForAppUpdate(): Promise<Update | null> {

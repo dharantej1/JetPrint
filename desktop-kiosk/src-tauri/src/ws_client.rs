@@ -11,7 +11,11 @@ use tokio::sync::{mpsc, Mutex, Notify};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::db::Database;
-use crate::models::{FilePrintSettings, JobFile, JobStatus, PrintJob, RelayStatusEvent};
+use crate::logger::AppLogger;
+use crate::models::{
+    FilePrintSettings, JobFile, JobStatus, PrintJob, RelayConnectionStatus, RelayStatusEvent,
+};
+use crate::storage::SharedStorage;
 
 pub const EVENT_JOB_RECEIVED: &str = "job-received";
 pub const EVENT_RELAY_STATUS: &str = "relay-status";
@@ -20,6 +24,7 @@ pub const EVENT_RELAY_STATUS: &str = "relay-status";
 pub struct RelayHandle {
     pub connected: Arc<AtomicBool>,
     pub reconnect_notify: Arc<Notify>,
+    status: Arc<std::sync::Mutex<(RelayConnectionStatus, Option<String>)>>,
     outgoing_tx: mpsc::UnboundedSender<String>,
     outgoing_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -30,6 +35,10 @@ impl RelayHandle {
         Self {
             connected: Arc::new(AtomicBool::new(false)),
             reconnect_notify: Arc::new(Notify::new()),
+            status: Arc::new(std::sync::Mutex::new((
+                RelayConnectionStatus::Connecting,
+                None,
+            ))),
             outgoing_tx,
             outgoing_rx: Arc::new(Mutex::new(Some(outgoing_rx))),
         }
@@ -37,6 +46,22 @@ impl RelayHandle {
 
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    pub fn status_snapshot(&self) -> (bool, RelayConnectionStatus, Option<String>) {
+        let connected = self.is_connected();
+        match self.status.lock() {
+            Ok(guard) => (connected, guard.0.clone(), guard.1.clone()),
+            Err(_) => (
+                connected,
+                if connected {
+                    RelayConnectionStatus::Connected
+                } else {
+                    RelayConnectionStatus::Disconnected
+                },
+                None,
+            ),
+        }
     }
 
     pub fn trigger_reconnect(&self) {
@@ -157,7 +182,7 @@ pub fn build_ws_url(relay_url: &str) -> String {
 }
 
 /// Spawns the background WebSocket relay loop that stays connected and reconnects on demand.
-pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
+pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHandle, logger: AppLogger) {
     tauri::async_runtime::spawn(async move {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -170,6 +195,7 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
         };
 
         loop {
+            let db = storage.db();
             let config = match db.get_config() {
                 Ok(c) => c,
                 Err(_) => {
@@ -180,6 +206,15 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
 
             let ws_url = build_ws_url(&config.relay_url);
             let mut active_token = config.auth_token.clone();
+
+            set_status(
+                &app,
+                &relay,
+                &config.machine_id,
+                false,
+                RelayConnectionStatus::Connecting,
+                Some("Connecting to relay..."),
+            );
 
             match connect_async(&ws_url).await {
                 Ok((ws_stream, _)) => {
@@ -195,7 +230,14 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
                     };
                     if let Ok(json) = serde_json::to_string(&auth_msg) {
                         if write.send(Message::Text(json.into())).await.is_err() {
-                            set_connected(&app, &relay, &config.machine_id, false, Some("Auth send failed"));
+                            set_status(
+                                &app,
+                                &relay,
+                                &config.machine_id,
+                                false,
+                                RelayConnectionStatus::Error,
+                                Some("Auth send failed"),
+                            );
                             tokio::time::sleep(Duration::from_secs(3)).await;
                             continue;
                         }
@@ -209,8 +251,7 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
                         let _ = write.send(Message::Text(json.into())).await;
                     }
 
-                    set_connected(&app, &relay, &config.machine_id, true, None);
-
+                    let mut had_error = false;
                     let mut heartbeat = tokio::time::interval(Duration::from_secs(25));
                     loop {
                         tokio::select! {
@@ -240,17 +281,49 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
                             incoming = read.next() => {
                                 match incoming {
                                     Some(Ok(Message::Text(text))) => {
-                                        if let Some(ack_job_id) = handle_ws_text(
+                                        let current_db = storage.db();
+                                        let jobs_dir = storage.jobs_dir();
+                                        match handle_ws_text(
                                             &app,
-                                            &db,
+                                            &current_db,
+                                            &jobs_dir,
                                             &http,
                                             &config.relay_url,
                                             &mut active_token,
+                                            &logger,
                                             &text,
                                         ).await {
-                                            if let Ok(ack_json) = serde_json::to_string(&OutgoingWsMessage::JobAck { job_id: ack_job_id }) {
-                                                let _ = write.send(Message::Text(ack_json.into())).await;
+                                            WsTextAction::Authenticated => {
+                                                logger.log("INFO", &format!("Connected to Cloud Relay ({})", config.relay_url));
+                                                set_status(
+                                                    &app,
+                                                    &relay,
+                                                    &config.machine_id,
+                                                    true,
+                                                    RelayConnectionStatus::Connected,
+                                                    None,
+                                                );
                                             }
+                                            WsTextAction::AckJob(ack_job_id) => {
+                                                if let Ok(ack_json) = serde_json::to_string(&OutgoingWsMessage::JobAck { job_id: ack_job_id }) {
+                                                    let _ = write.send(Message::Text(ack_json.into())).await;
+                                                }
+                                            }
+                                            WsTextAction::RelayError(err_msg) => {
+                                                had_error = true;
+                                                logger.log("ERROR", &format!("Relay auth error: {err_msg}"));
+                                                set_status(
+                                                    &app,
+                                                    &relay,
+                                                    &config.machine_id,
+                                                    false,
+                                                    RelayConnectionStatus::Error,
+                                                    Some(&err_msg),
+                                                );
+                                                let _ = write.close().await;
+                                                break;
+                                            }
+                                            WsTextAction::None => {}
                                         }
                                     }
                                     Some(Ok(Message::Close(_))) | None => break,
@@ -261,15 +334,28 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
                         }
                     }
 
-                    set_connected(&app, &relay, &config.machine_id, false, Some("Disconnected from relay"));
+                    if !had_error {
+                        logger.log("WARN", "Disconnected from Cloud Relay");
+                        set_status(
+                            &app,
+                            &relay,
+                            &config.machine_id,
+                            false,
+                            RelayConnectionStatus::Disconnected,
+                            Some("Disconnected from relay"),
+                        );
+                    }
                 }
                 Err(err) => {
-                    set_connected(
+                    let msg = format!("Relay connection failed: {err}");
+                    logger.log("ERROR", &msg);
+                    set_status(
                         &app,
                         &relay,
                         &config.machine_id,
                         false,
-                        Some(&format!("Relay connection failed: {err}")),
+                        RelayConnectionStatus::Error,
+                        Some(&msg),
                     );
                 }
             }
@@ -282,18 +368,30 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
     });
 }
 
-fn set_connected(
+enum WsTextAction {
+    None,
+    Authenticated,
+    AckJob(String),
+    RelayError(String),
+}
+
+fn set_status(
     app: &AppHandle,
     relay: &RelayHandle,
     machine_id: &str,
     connected: bool,
+    status: RelayConnectionStatus,
     message: Option<&str>,
 ) {
     relay.connected.store(connected, Ordering::Relaxed);
+    if let Ok(mut guard) = relay.status.lock() {
+        *guard = (status.clone(), message.map(str::to_string));
+    }
     let _ = app.emit(
         EVENT_RELAY_STATUS,
         RelayStatusEvent {
             connected,
+            status,
             machine_id: machine_id.to_string(),
             message: message.map(str::to_string),
         },
@@ -303,13 +401,15 @@ fn set_connected(
 async fn handle_ws_text(
     app: &AppHandle,
     db: &Arc<Database>,
+    jobs_dir: &std::path::Path,
     http: &reqwest::Client,
     relay_url: &str,
     active_token: &mut Option<String>,
+    logger: &AppLogger,
     text: &str,
-) -> Option<String> {
+) -> WsTextAction {
     let Ok(msg) = serde_json::from_str::<IncomingWsMessage>(text) else {
-        return None;
+        return WsTextAction::None;
     };
 
     match msg {
@@ -317,7 +417,7 @@ async fn handle_ws_text(
         | IncomingWsMessage::AuthOk { auth_token, .. } => {
             *active_token = Some(auth_token.clone());
             let _ = db.update_auth_token(Some(&auth_token));
-            None
+            WsTextAction::Authenticated
         }
         IncomingWsMessage::JobDispatch {
             job_id,
@@ -326,9 +426,9 @@ async fn handle_ws_text(
             files,
             created_at,
         } => {
-            let job_dir = std::env::temp_dir().join("jetprint-jobs").join(&job_id);
+            let job_dir = jobs_dir.join(&job_id);
             if tokio::fs::create_dir_all(&job_dir).await.is_err() {
-                return None;
+                return WsTextAction::None;
             }
 
             let mut downloaded_files = Vec::with_capacity(files.len());
@@ -351,19 +451,19 @@ async fn handle_ws_text(
                 }
 
                 let Ok(resp) = req.send().await else {
-                    return None;
+                    return WsTextAction::None;
                 };
                 if !resp.status().is_success() {
-                    return None;
+                    return WsTextAction::None;
                 }
                 let Ok(bytes) = resp.bytes().await else {
-                    return None;
+                    return WsTextAction::None;
                 };
 
                 let safe_name = sanitize_filename(&f.filename);
                 let dest: PathBuf = job_dir.join(format!("{}_{}", f.file_id, safe_name));
                 if tokio::fs::write(&dest, &bytes).await.is_err() {
-                    return None;
+                    return WsTextAction::None;
                 }
 
                 downloaded_files.push(JobFile {
@@ -388,16 +488,24 @@ async fn handle_ws_text(
             };
 
             if db.insert_job(&job).is_ok() {
+                logger.log(
+                    "INFO",
+                    &format!("Received job {} (OTP {}, {} file(s))", job.id, job.otp, job.files.len()),
+                );
                 let _ = app.emit(EVENT_JOB_RECEIVED, &job);
-                return Some(job_id);
+                return WsTextAction::AckJob(job_id);
             }
-            None
+            WsTextAction::None
         }
-        IncomingWsMessage::Error { message, .. } => {
-            eprintln!("[JetPrint WS] Relay error: {message}");
-            None
+        IncomingWsMessage::Error { code, message } => {
+            eprintln!("[JetPrint WS] Relay error ({code:?}): {message}");
+            if code.as_deref() == Some("AUTH_FAILED") {
+                WsTextAction::RelayError(message)
+            } else {
+                WsTextAction::None
+            }
         }
-        IncomingWsMessage::PricingAck {} | IncomingWsMessage::Pong => None,
+        IncomingWsMessage::PricingAck {} | IncomingWsMessage::Pong => WsTextAction::None,
     }
 }
 

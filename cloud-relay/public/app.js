@@ -22,8 +22,11 @@
     fileInput: document.getElementById('fileInput'),
     activeOtpContainer: document.getElementById('activeOtpContainer'),
     machineLookupCard: document.getElementById('machineLookupCard'),
+    machineLookupActions: document.getElementById('machineLookupActions'),
     machineForm: document.getElementById('machineForm'),
     machineIdInput: document.getElementById('machineIdInput'),
+    retryMachineBtn: document.getElementById('retryMachineBtn'),
+    clearMachineBtn: document.getElementById('clearMachineBtn'),
     kioskOfflineBanner: document.getElementById('kioskOfflineBanner'),
     errorBanner: document.getElementById('errorBanner'),
     emptyUploadCard: document.getElementById('emptyUploadCard'),
@@ -176,12 +179,25 @@
   // Persistent Active OTPs (localStorage + polling)
   // =========================================================================
 
+  const OTP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+
   function loadStoredOtps() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - OTP_MAX_AGE_MS;
+      const fresh = parsed.filter(
+        (entry) =>
+          entry &&
+          typeof entry.createdAt === 'number' &&
+          entry.createdAt >= cutoff
+      );
+      if (fresh.length !== parsed.length) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+      }
+      return fresh;
     } catch {
       return [];
     }
@@ -195,7 +211,7 @@
     }
   }
 
-  function addActiveOtp(jobId, otp, targetMachineId) {
+  function addActiveOtp(jobId, otp, targetMachineId, files = []) {
     const existing = state.activeOtps.find((item) => item.jobId === jobId);
     if (!existing) {
       state.activeOtps.unshift({
@@ -204,6 +220,7 @@
         machineId: targetMachineId,
         status: 'dispatched',
         error: null,
+        files,
         createdAt: Date.now(),
       });
       saveStoredOtps();
@@ -223,13 +240,19 @@
         return 'Print Completed!';
       case 'failed':
         return 'Print Failed';
+      case 'cancelled':
+        return 'Cancelled';
       default:
         return 'Waiting for OTP at Kiosk';
     }
   }
 
   function renderActiveOtps() {
-    if (state.activeOtps.length === 0) {
+    const visibleOtps = machineId
+      ? state.activeOtps.filter((entry) => entry.machineId === machineId)
+      : [];
+
+    if (visibleOtps.length === 0) {
       els.activeOtpContainer.hidden = true;
       els.activeOtpContainer.innerHTML = '';
       return;
@@ -238,40 +261,71 @@
     els.activeOtpContainer.hidden = false;
     els.activeOtpContainer.innerHTML = '';
 
-    state.activeOtps.forEach((entry) => {
+    visibleOtps.forEach((entry) => {
       const card = document.createElement('div');
-      const isDone = entry.status === 'printed' || entry.status === 'failed';
-      card.className = `card otp-card${entry.status === 'failed' ? ' failed' : ''}`;
+      const cardMod =
+        entry.status === 'failed'
+          ? ' failed'
+          : entry.status === 'cancelled'
+          ? ' cancelled'
+          : '';
+      card.className = `card otp-card${cardMod}`;
       const badgeClass =
         entry.status === 'printed'
           ? 'printed'
           : entry.status === 'failed'
           ? 'failed'
+          : entry.status === 'cancelled'
+          ? 'cancelled'
           : '';
+
+      const files = Array.isArray(entry.files) ? entry.files : [];
+      const docsHtml =
+        files.length > 0
+          ? `<ul class="otp-docs-list">
+              ${files
+                .map((f) => {
+                  const colorLabel = f.colorMode === 'color' ? 'Color' : 'B/W';
+                  const copies = f.copies || 1;
+                  const pages = f.pageCount || 1;
+                  return `<li class="otp-doc-item">
+                    <span class="otp-doc-name">${escapeHtml(f.filename || 'Document')}</span>
+                    <span class="otp-doc-meta">${pages} pg • ${copies}x • ${colorLabel}</span>
+                  </li>`;
+                })
+                .join('')}
+            </ul>`
+          : '';
+
       card.innerHTML = `
         <span class="otp-status-badge ${badgeClass}">${escapeHtml(statusLabel(entry.status))}</span>
         <h2>Active Print OTP</h2>
         <p class="muted">Enter this 6-digit OTP on Kiosk <strong>${escapeHtml(entry.machineId)}</strong></p>
         <div class="otp-display">${escapeHtml(entry.otp)}</div>
+        ${docsHtml}
         ${entry.error ? `<p class="muted" style="color:#fca5a5">${escapeHtml(entry.error)}</p>` : ''}
         <p class="muted" style="font-size:0.75rem">Job: ${escapeHtml(entry.jobId)}</p>
-        ${isDone ? `<button type="button" class="btn btn-secondary dismiss-otp-btn">Dismiss</button>` : ''}
+        <button type="button" class="btn btn-secondary dismiss-otp-btn">Dismiss</button>
       `;
-      if (isDone) {
-        card.querySelector('.dismiss-otp-btn').addEventListener('click', () => {
-          state.activeOtps = state.activeOtps.filter((x) => x.jobId !== entry.jobId);
-          saveStoredOtps();
-          renderActiveOtps();
-        });
-      }
+      card.querySelector('.dismiss-otp-btn').addEventListener('click', () => {
+        state.activeOtps = state.activeOtps.filter((x) => x.jobId !== entry.jobId);
+        saveStoredOtps();
+        renderActiveOtps();
+      });
       els.activeOtpContainer.appendChild(card);
     });
   }
 
   async function pollActiveOtps() {
-    const pending = state.activeOtps.filter(
-      (x) => x.status !== 'printed' && x.status !== 'failed'
-    );
+    const pending = machineId
+      ? state.activeOtps.filter(
+          (x) =>
+            x.machineId === machineId &&
+            x.status !== 'printed' &&
+            x.status !== 'failed' &&
+            x.status !== 'cancelled'
+        )
+      : [];
     if (pending.length === 0) {
       if (state.otpPollTimer) {
         clearInterval(state.otpPollTimer);
@@ -297,6 +351,21 @@
           entry.error = data.error || null;
           changed = true;
         }
+        if (
+          Array.isArray(data.files) &&
+          data.files.length > 0 &&
+          (!Array.isArray(entry.files) || entry.files.length === 0)
+        ) {
+          entry.files = data.files.map((f) => ({
+            filename: f.filename || 'Document',
+            pageCount: f.page_count || 1,
+            copies: f.settings?.copies || 1,
+            colorMode: f.settings?.color ? 'color' : 'bw',
+            orientation: f.settings?.orientation || 'portrait',
+            pageRange: f.settings?.pageRange || 'all',
+          }));
+          changed = true;
+        }
       } catch {
         // ignore transient errors
       }
@@ -309,9 +378,15 @@
   }
 
   function ensureOtpPolling() {
-    const hasPending = state.activeOtps.some(
-      (x) => x.status !== 'printed' && x.status !== 'failed'
-    );
+    const hasPending = machineId
+      ? state.activeOtps.some(
+          (x) =>
+            x.machineId === machineId &&
+            x.status !== 'printed' &&
+            x.status !== 'failed' &&
+            x.status !== 'cancelled'
+        )
+      : false;
     if (hasPending && !state.otpPollTimer) {
       state.otpPollTimer = setInterval(() => {
         void pollActiveOtps();
@@ -577,16 +652,28 @@
   // =========================================================================
 
   async function loadMachine() {
+    renderActiveOtps();
+    ensureOtpPolling();
     if (!machineId) {
       els.kioskStatus.textContent = 'No Kiosk';
+      els.kioskStatus.className = 'status-pill';
+      els.shopName.textContent = 'Self-Service Cloud Print';
+      els.kioskOfflineBanner.hidden = true;
       els.machineLookupCard.hidden = false;
+      els.machineLookupActions.hidden = true;
+      els.machineIdInput.value = '';
       els.emptyUploadCard.hidden = true;
       els.workspaceSection.hidden = true;
       els.stickyFooter.hidden = true;
+      showError('');
       return;
     }
 
+    els.kioskStatus.textContent = 'Checking…';
+    els.kioskStatus.className = 'status-pill';
     els.machineLookupCard.hidden = true;
+    els.machineLookupActions.hidden = true;
+    els.kioskOfflineBanner.hidden = true;
     showError('');
 
     try {
@@ -594,7 +681,15 @@
       if (!res.ok) {
         els.kioskStatus.textContent = 'Not Found';
         els.kioskStatus.className = 'status-pill offline';
-        showError(`Kiosk "${machineId}" was not found. Please check the QR code.`);
+        els.machineIdInput.value = machineId;
+        els.machineLookupCard.hidden = false;
+        els.machineLookupActions.hidden = false;
+        els.emptyUploadCard.hidden = true;
+        els.workspaceSection.hidden = true;
+        els.stickyFooter.hidden = true;
+        showError(
+          `Kiosk "${machineId}" was not found. Make sure the JetPrint Kiosk app is running and connected to this Cloud Relay, or enter a different Machine ID below.`
+        );
         return;
       }
       const data = await res.json();
@@ -617,7 +712,17 @@
 
       renderWorkspace();
     } catch {
-      showError('Unable to reach Cloud Relay server.');
+      els.kioskStatus.textContent = 'Relay Error';
+      els.kioskStatus.className = 'status-pill offline';
+      els.machineIdInput.value = machineId;
+      els.machineLookupCard.hidden = false;
+      els.machineLookupActions.hidden = false;
+      els.emptyUploadCard.hidden = true;
+      els.workspaceSection.hidden = true;
+      els.stickyFooter.hidden = true;
+      showError(
+        'Unable to reach Cloud Relay server. Check your connection and retry, or enter a different Machine ID below.'
+      );
     }
   }
 
@@ -679,7 +784,15 @@
   }
 
   function onPaymentConfirmed(jobId, otp) {
-    addActiveOtp(jobId, otp, machineId);
+    const files = state.docs.map((d) => ({
+      filename: d.file?.name || 'Document',
+      pageCount: d.pageCount || 1,
+      copies: d.settings?.copies || 1,
+      colorMode: d.settings?.color ? 'color' : 'bw',
+      orientation: d.settings?.orientation || 'portrait',
+      pageRange: d.settings?.pageRange || 'all',
+    }));
+    addActiveOtp(jobId, otp, machineId, files);
     state.docs.forEach((d) => URL.revokeObjectURL(d.objectUrl));
     state.docs = [];
     state.activeIndex = 0;
@@ -698,11 +811,26 @@
     e.preventDefault();
     const val = els.machineIdInput.value.trim();
     if (!val) return;
+    showError('');
     machineId = val;
     const url = new URL(window.location.href);
     url.searchParams.set('machine_id', machineId);
     window.history.replaceState({}, '', url.toString());
     void loadMachine();
+  });
+
+  els.retryMachineBtn.addEventListener('click', () => {
+    if (!machineId) return;
+    void loadMachine();
+  });
+
+  els.clearMachineBtn.addEventListener('click', () => {
+    machineId = '';
+    const url = new URL(window.location.href);
+    url.searchParams.delete('machine_id');
+    window.history.replaceState({}, '', url.toString());
+    void loadMachine();
+    els.machineIdInput.focus();
   });
 
   els.topUploadBtn.addEventListener('click', () => els.fileInput.click());

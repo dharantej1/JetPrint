@@ -210,7 +210,7 @@ export class RelayStore {
 
   updateJobStatus(
     jobId: string,
-    status: 'printing' | 'printed' | 'failed',
+    status: 'printing' | 'printed' | 'failed' | 'cancelled',
     error?: string
   ): PrintJobRecord | undefined {
     const job = this.jobs.get(jobId);

@@ -6,7 +6,9 @@ import {
   Loader2,
   Printer,
   KeyRound,
+  FileText,
 } from "lucide-react";
+import type { PrintJob } from "../types";
 
 export type OtpFeedbackStatus = "idle" | "verifying" | "success" | "error";
 
@@ -16,6 +18,7 @@ interface OtpKeypadProps {
   onSubmit: () => void;
   status: OtpFeedbackStatus;
   feedbackMessage: string;
+  printedJob?: PrintJob | null;
   disabled?: boolean;
 }
 
@@ -25,6 +28,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
   onSubmit,
   status,
   feedbackMessage,
+  printedJob = null,
   disabled = false,
 }) => {
   const isBusy = status === "verifying";
@@ -105,6 +109,23 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
           {feedbackMessage || "Enter your 6-digit OTP and tap Print"}
         </span>
       </div>
+
+      {status === "success" && printedJob && printedJob.files.length > 0 && (
+        <div className="otp-printed-docs" aria-label="Printed documents">
+          {printedJob.files.map((file, idx) => (
+            <div key={file.fileId || idx} className="otp-printed-doc-item">
+              <span className="otp-printed-doc-name">
+                <FileText size={13} color="#6ee7b7" />
+                <span>{file.filename || "Document"}</span>
+              </span>
+              <span className="otp-printed-doc-meta">
+                {printedJob.copies} {printedJob.copies === 1 ? "copy" : "copies"} •{" "}
+                {printedJob.color ? "Color" : "B/W"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="keypad-grid">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (

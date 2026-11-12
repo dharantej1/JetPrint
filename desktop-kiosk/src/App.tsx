@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { Printer, Settings, Wifi, WifiOff, DownloadCloud } from "lucide-react";
-import type { KioskState, PrintJob } from "./types";
+import type { KioskState, PrintJob, RelayStatus } from "./types";
 import {
+  cancelJob,
   checkForAppUpdate,
   getKioskState,
   listJobs,
@@ -12,8 +13,10 @@ import {
 import { QrPanel } from "./components/QrPanel";
 import { OtpKeypad, type OtpFeedbackStatus } from "./components/OtpKeypad";
 import { FirstRunWizard } from "./components/FirstRunWizard";
+import { ExistingDataModal } from "./components/ExistingDataModal";
 import { OwnerSettingsModal } from "./components/OwnerSettingsModal";
-import { OwnerModeQueue } from "./components/OwnerModeQueue";
+import { OwnerModeQueue, getTodayLocalDate } from "./components/OwnerModeQueue";
+import { LogsWindow } from "./components/LogsWindow";
 
 const FALLBACK_STATE: KioskState = {
   machineId: "LOADING",
@@ -25,22 +28,39 @@ const FALLBACK_STATE: KioskState = {
   kioskMode: "self_service",
   setupComplete: true,
   relayConnected: false,
+  relayStatus: "connecting",
+  relayMessage: null,
+  existingDataPrompt: false,
+  existingJobCount: 0,
+  storagePath: "",
 };
 
-export const App: React.FC = () => {
+const KioskApp: React.FC = () => {
   const [kioskState, setKioskState] = useState<KioskState>(FALLBACK_STATE);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [relayConnected, setRelayConnected] = useState(false);
+  const [relayStatus, setRelayStatus] = useState<RelayStatus>("connecting");
+  const [relayMessage, setRelayMessage] = useState<string | null>(null);
 
   // OTP entry state
   const [otp, setOtp] = useState("");
   const [otpStatus, setOtpStatus] = useState<OtpFeedbackStatus>("idle");
   const [otpMessage, setOtpMessage] = useState("");
+  const [printedJob, setPrintedJob] = useState<PrintJob | null>(null);
 
   // Owner mode queue state
   const [jobs, setJobs] = useState<PrintJob[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(() =>
+    getTodayLocalDate()
+  );
   const [printingJobOtp, setPrintingJobOtp] = useState<string | null>(null);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+
+  // Refs for stable event listener callbacks
+  const kioskModeRef = useRef(kioskState.kioskMode);
+  kioskModeRef.current = kioskState.kioskMode;
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
 
   // Owner modal & updater state
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -50,13 +70,25 @@ export const App: React.FC = () => {
   const tapCountRef = useRef(0);
   const tapTimerRef = useRef<number | null>(null);
 
+  const refreshJobs = useCallback(async (dateOverride?: string | null) => {
+    const date =
+      dateOverride === undefined ? selectedDateRef.current : dateOverride;
+    try {
+      const nextJobs = await listJobs(undefined, date ?? undefined);
+      setJobs(nextJobs);
+    } catch {
+      // ignore transient errors
+    }
+  }, []);
+
   const loadState = useCallback(async () => {
     try {
       const state = await getKioskState();
       setKioskState(state);
-      setRelayConnected(state.relayConnected);
+      setRelayStatus(state.relayStatus);
+      setRelayMessage(state.relayMessage);
       if (state.kioskMode === "owner") {
-        listJobs().then(setJobs).catch(() => {});
+        await refreshJobs();
       }
       setLoadError("");
     } catch (err) {
@@ -68,38 +100,44 @@ export const App: React.FC = () => {
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [refreshJobs]);
 
   useEffect(() => {
+    let active = true;
+    let unlisteners: Array<() => void> = [];
+
+    listenKioskEvents({
+      onJobReceived: () => {
+        if (kioskModeRef.current === "owner") {
+          refreshJobs();
+        }
+      },
+      onRelayStatus: (event) => {
+        setRelayStatus(event.status);
+        setRelayMessage(event.message);
+      },
+    })
+      .then((fns) => {
+        if (!active) {
+          fns.forEach((fn) => fn());
+        } else {
+          unlisteners = fns;
+        }
+      })
+      .catch(() => {});
+
     loadState();
     checkForAppUpdate().then((update) => {
       if (update) {
         setAvailableUpdate(update);
       }
     });
-  }, [loadState]);
-
-  useEffect(() => {
-    let unlisteners: Array<() => void> = [];
-    listenKioskEvents({
-      onJobReceived: () => {
-        if (kioskState.kioskMode === "owner") {
-          listJobs().then(setJobs).catch(() => {});
-        }
-      },
-      onRelayStatus: (event) => {
-        setRelayConnected(event.connected);
-      },
-    })
-      .then((fns) => {
-        unlisteners = fns;
-      })
-      .catch(() => {});
 
     return () => {
+      active = false;
       unlisteners.forEach((fn) => fn());
     };
-  }, [kioskState.kioskMode]);
+  }, [loadState, refreshJobs]);
 
   // Ctrl+Shift+S / Cmd+Shift+S shortcut to open Owner Settings
   useEffect(() => {
@@ -136,9 +174,11 @@ export const App: React.FC = () => {
     if (otp.length !== 6) return;
     setOtpStatus("verifying");
     setOtpMessage("Verifying OTP and sending to printer...");
+    setPrintedJob(null);
     try {
       const res = await verifyOtpAndPrint(otp);
       setOtpStatus("success");
+      setPrintedJob(res?.job ?? null);
       setOtpMessage(
         res?.message || "OTP verified! Your document is printing now."
       );
@@ -146,9 +186,11 @@ export const App: React.FC = () => {
       window.setTimeout(() => {
         setOtpStatus("idle");
         setOtpMessage("");
+        setPrintedJob(null);
       }, 6000);
     } catch (err) {
       setOtpStatus("error");
+      setPrintedJob(null);
       setOtpMessage(
         typeof err === "string"
           ? err
@@ -161,14 +203,44 @@ export const App: React.FC = () => {
     setPrintingJobOtp(jobOtp);
     try {
       await verifyOtpAndPrint(jobOtp);
-      const refreshed = await listJobs();
-      setJobs(refreshed);
+      await refreshJobs();
     } catch (err) {
       console.error("Direct print failed:", err);
     } finally {
       setPrintingJobOtp(null);
     }
   };
+
+  const handleOwnerQueueCancel = async (jobId: string) => {
+    setCancellingJobId(jobId);
+    try {
+      await cancelJob(jobId);
+      await refreshJobs();
+    } catch (err) {
+      console.error("Cancel job failed:", err);
+    } finally {
+      setCancellingJobId(null);
+    }
+  };
+
+  const handleDateChange = (nextDate: string | null) => {
+    setSelectedDate(nextDate);
+    selectedDateRef.current = nextDate;
+    refreshJobs(nextDate);
+  };
+
+  const isRelayOnline = relayStatus === "connected";
+  const isRelayError = relayStatus === "error" || relayStatus === "disconnected";
+  const relayLabel = isRelayOnline
+    ? "Relay Online"
+    : isRelayError
+      ? "Relay Offline"
+      : "Connecting...";
+  const relayDotClass = isRelayOnline
+    ? "online"
+    : isRelayError
+      ? "error"
+      : "offline";
 
   return (
     <div className="kiosk-shell">
@@ -203,10 +275,13 @@ export const App: React.FC = () => {
             </button>
           )}
 
-          <div className="status-pill">
-            <span className={`status-dot ${relayConnected ? "online" : "offline"}`} />
-            {relayConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span>{relayConnected ? "Relay Online" : "Connecting..."}</span>
+          <div
+            className={`status-pill ${isRelayError ? "error" : ""}`}
+            title={relayMessage ?? undefined}
+          >
+            <span className={`status-dot ${relayDotClass}`} />
+            {isRelayOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+            <span>{relayLabel}</span>
           </div>
 
           <button
@@ -238,9 +313,13 @@ export const App: React.FC = () => {
         {kioskState.kioskMode === "owner" ? (
           <OwnerModeQueue
             jobs={jobs}
-            onRefresh={() => listJobs().then(setJobs).catch(() => {})}
+            selectedDate={selectedDate}
+            onDateChange={handleDateChange}
+            onRefresh={() => refreshJobs()}
             onPrintJob={handleOwnerQueuePrint}
+            onCancelJob={handleOwnerQueueCancel}
             printingOtp={printingJobOtp}
+            cancellingJobId={cancellingJobId}
           />
         ) : (
           <OtpKeypad
@@ -250,11 +329,13 @@ export const App: React.FC = () => {
               if (otpStatus === "error" || otpStatus === "success") {
                 setOtpStatus("idle");
                 setOtpMessage("");
+                setPrintedJob(null);
               }
             }}
             onSubmit={handleVerifyAndPrint}
             status={otpStatus}
             feedbackMessage={otpMessage}
+            printedJob={printedJob}
             disabled={!loaded || !kioskState.setupComplete}
           />
         )}
@@ -267,9 +348,32 @@ export const App: React.FC = () => {
         aria-hidden="true"
       />
 
-      {loaded && !kioskState.setupComplete && (
+      {loaded && kioskState.existingDataPrompt && (
+        <ExistingDataModal
+          machineId={kioskState.machineId}
+          existingJobCount={kioskState.existingJobCount}
+          onResolved={(next) => {
+            setKioskState(next);
+            setRelayStatus(next.relayStatus);
+            setRelayMessage(next.relayMessage);
+            if (!next.setupComplete) {
+              setJobs([]);
+            } else if (next.kioskMode === "owner") {
+              refreshJobs();
+            }
+          }}
+        />
+      )}
+
+      {loaded && !kioskState.existingDataPrompt && !kioskState.setupComplete && (
         <FirstRunWizard
-          onComplete={() => {
+          initialState={kioskState}
+          onComplete={(next) => {
+            if (next) {
+              setKioskState(next);
+              setRelayStatus(next.relayStatus);
+              setRelayMessage(next.relayMessage);
+            }
             loadState();
           }}
         />
@@ -282,14 +386,24 @@ export const App: React.FC = () => {
           onClose={() => setSettingsOpen(false)}
           onStateUpdated={(next) => {
             setKioskState(next);
+            setRelayStatus(next.relayStatus);
+            setRelayMessage(next.relayMessage);
             if (next.kioskMode === "owner") {
-              listJobs().then(setJobs).catch(() => {});
+              refreshJobs();
             }
           }}
         />
       )}
     </div>
   );
+};
+
+export const App: React.FC = () => {
+  const view = new URLSearchParams(window.location.search).get("view");
+  if (view === "logs") {
+    return <LogsWindow />;
+  }
+  return <KioskApp />;
 };
 
 export default App;

@@ -55,6 +55,7 @@ export type JobStatus =
   | 'printing'
   | 'printed'
   | 'failed'
+  | 'cancelled'
   | 'expired';
 
 export interface PrintJobRecord {
@@ -105,7 +106,7 @@ export type KioskToRelayMessage =
   | {
       type: 'job_status_update';
       job_id: string;
-      status: 'printing' | 'printed' | 'failed';
+      status: 'printing' | 'printed' | 'failed' | 'cancelled';
       error?: string;
     }
   | {
