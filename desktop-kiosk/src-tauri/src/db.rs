@@ -7,6 +7,10 @@ use uuid::Uuid;
 
 use crate::models::{AppConfig, JobFile, JobStatus, KioskMode, PrintJob, UpdateSettingsInput};
 
+pub fn generate_machine_id() -> String {
+    format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12])
+}
+
 pub fn current_exe_fingerprint() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let exe_meta = std::env::current_exe()
@@ -118,7 +122,7 @@ impl Database {
             .map_err(|e| format!("Failed to query app_config: {e}"))?;
 
         if existing.is_none() {
-            let machine_id = format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12]);
+            let machine_id = generate_machine_id();
             let default_relay = "http://localhost:3000";
             conn.execute(
                 r#"
@@ -263,7 +267,7 @@ impl Database {
     }
 
     pub fn reset_installation_data(&self, fingerprint: &str) -> Result<AppConfig, String> {
-        let new_machine_id = format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12]);
+        let new_machine_id = generate_machine_id();
         {
             let mut conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
             let tx = conn
@@ -303,7 +307,7 @@ impl Database {
             .as_ref()
             .map(|s| s.trim().trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or(current.relay_url);
+            .unwrap_or_else(|| current.relay_url.clone());
         let bw_price_paise = input.bw_price_paise.unwrap_or(current.bw_price_paise).max(0);
         let color_price_paise = input
             .color_price_paise
@@ -315,6 +319,11 @@ impl Database {
             None => current.default_printer,
         };
         let kiosk_mode = input.kiosk_mode.clone().unwrap_or(current.kiosk_mode);
+        let auth_token = if relay_url != current.relay_url {
+            None
+        } else {
+            current.auth_token
+        };
 
         {
             let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
@@ -322,14 +331,16 @@ impl Database {
                 r#"
                 UPDATE app_config
                 SET relay_url = ?1,
-                    bw_price_paise = ?2,
-                    color_price_paise = ?3,
-                    default_printer = ?4,
-                    kiosk_mode = ?5
+                    auth_token = ?2,
+                    bw_price_paise = ?3,
+                    color_price_paise = ?4,
+                    default_printer = ?5,
+                    kiosk_mode = ?6
                 WHERE id = 1
                 "#,
                 params![
                     relay_url,
+                    auth_token,
                     bw_price_paise,
                     color_price_paise,
                     default_printer,
@@ -337,6 +348,20 @@ impl Database {
                 ],
             )
             .map_err(|e| format!("Failed to update settings: {e}"))?;
+        }
+        self.get_config()
+    }
+
+    /// Generates a fresh machine_id and clears auth_token so the kiosk re-registers with the relay.
+    pub fn reset_machine_identity(&self) -> Result<AppConfig, String> {
+        let new_machine_id = generate_machine_id();
+        {
+            let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            conn.execute(
+                "UPDATE app_config SET machine_id = ?1, auth_token = NULL WHERE id = 1",
+                params![new_machine_id],
+            )
+            .map_err(|e| format!("Failed to reset machine identity: {e}"))?;
         }
         self.get_config()
     }
@@ -535,6 +560,64 @@ mod tests {
         assert_eq!(settings.color_price_paise, 1500);
         assert_eq!(settings.default_printer.as_deref(), Some("HP LaserJet"));
         assert_eq!(settings.kiosk_mode, KioskMode::Owner);
+    }
+
+    #[test]
+    fn update_settings_clears_auth_token_when_relay_url_changes() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        db.update_auth_token(Some("tok_existing")).expect("set token");
+
+        let updated = db
+            .update_settings(&UpdateSettingsInput {
+                relay_url: Some("https://jetprint.onrender.com/".to_string()),
+                bw_price_paise: None,
+                color_price_paise: None,
+                default_printer: None,
+                kiosk_mode: None,
+            })
+            .expect("update_settings");
+
+        assert_eq!(updated.relay_url, "https://jetprint.onrender.com");
+        assert_eq!(updated.auth_token, None);
+    }
+
+    #[test]
+    fn update_settings_preserves_auth_token_when_relay_url_unchanged() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        db.update_settings(&UpdateSettingsInput {
+            relay_url: Some("https://jetprint.onrender.com".to_string()),
+            bw_price_paise: None,
+            color_price_paise: None,
+            default_printer: None,
+            kiosk_mode: None,
+        })
+        .expect("set relay_url");
+        db.update_auth_token(Some("tok_keep")).expect("set token");
+
+        let updated = db
+            .update_settings(&UpdateSettingsInput {
+                relay_url: Some("https://jetprint.onrender.com/".to_string()),
+                bw_price_paise: Some(250),
+                color_price_paise: None,
+                default_printer: None,
+                kiosk_mode: None,
+            })
+            .expect("update_settings same relay");
+
+        assert_eq!(updated.bw_price_paise, 250);
+        assert_eq!(updated.auth_token.as_deref(), Some("tok_keep"));
+    }
+
+    #[test]
+    fn reset_machine_identity_generates_new_id_and_clears_auth_token() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let initial = db.get_config().expect("initial config");
+        db.update_auth_token(Some("tok_stale")).expect("set token");
+
+        let reset = db.reset_machine_identity().expect("reset_machine_identity");
+        assert!(reset.machine_id.starts_with("jp-"));
+        assert_ne!(reset.machine_id, initial.machine_id);
+        assert_eq!(reset.auth_token, None);
     }
 
     #[test]

@@ -54,7 +54,8 @@ fn resolve_qr_relay_url(relay_url: &str) -> String {
 
 fn to_kiosk_state(cfg: AppConfig, state: &AppState) -> KioskState {
     let qr_relay_url = resolve_qr_relay_url(&cfg.relay_url);
-    let (relay_connected, relay_status, relay_message) = state.relay.status_snapshot();
+    let (relay_connected, relay_status, relay_message, relay_auth_error) =
+        state.relay.status_snapshot();
     let existing_data_prompt = state.existing_data_prompt.load(Ordering::Relaxed);
     let existing_job_count = if existing_data_prompt {
         state.storage.db().count_jobs().unwrap_or(0)
@@ -73,6 +74,7 @@ fn to_kiosk_state(cfg: AppConfig, state: &AppState) -> KioskState {
         relay_connected,
         relay_status,
         relay_message,
+        relay_auth_error,
         existing_data_prompt,
         existing_job_count,
         storage_path: state.storage.data_dir().to_string_lossy().to_string(),
@@ -158,8 +160,10 @@ pub fn update_settings(
     let prev = db.get_config()?;
     let updated = db.update_settings(&settings)?;
 
-    if updated.relay_url != prev.relay_url
-        || updated.bw_price_paise != prev.bw_price_paise
+    if updated.relay_url != prev.relay_url {
+        state.relay.clear_auth_error();
+        state.relay.trigger_reconnect();
+    } else if updated.bw_price_paise != prev.bw_price_paise
         || updated.color_price_paise != prev.color_price_paise
     {
         state.relay.trigger_reconnect();
@@ -302,6 +306,18 @@ pub fn connect_relay(
 
     state.relay.trigger_reconnect();
     Ok(to_kiosk_state(cfg, &state))
+}
+
+#[tauri::command]
+pub fn reset_machine_identity(state: State<'_, AppState>) -> Result<KioskState, String> {
+    let updated = state.storage.db().reset_machine_identity()?;
+    state.logger.log(
+        "INFO",
+        &format!("Reset kiosk machine ID to {} for relay re-registration", updated.machine_id),
+    );
+    state.relay.clear_auth_error();
+    state.relay.trigger_reconnect();
+    Ok(to_kiosk_state(updated, &state))
 }
 
 #[tauri::command]

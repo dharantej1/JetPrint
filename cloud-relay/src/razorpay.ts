@@ -59,6 +59,33 @@ export async function createPaymentOrder(
   };
 }
 
+function timingSafeHexEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  if (aBuf.length !== bBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+export function verifyRazorpayPaymentSignature(params: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+  keySecret: string | undefined;
+}): boolean {
+  const { orderId, paymentId, signature, keySecret } = params;
+  if (!orderId || !paymentId || !signature || !keySecret) {
+    return false;
+  }
+  const expected = crypto
+    .createHmac('sha256', keySecret)
+    .update(`${orderId}|${paymentId}`)
+    .digest('hex');
+
+  return timingSafeHexEqual(signature, expected);
+}
+
 export function verifyRazorpayWebhookSignature(
   rawBody: Buffer | string,
   signatureHeader: string | undefined,
@@ -72,10 +99,5 @@ export function verifyRazorpayWebhookSignature(
     .update(rawBody)
     .digest('hex');
 
-  const sigBuf = Buffer.from(signatureHeader, 'utf8');
-  const expBuf = Buffer.from(expected, 'utf8');
-  if (sigBuf.length !== expBuf.length) {
-    return false;
-  }
-  return crypto.timingSafeEqual(sigBuf, expBuf);
+  return timingSafeHexEqual(signatureHeader, expected);
 }

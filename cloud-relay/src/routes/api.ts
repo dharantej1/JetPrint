@@ -12,6 +12,7 @@ import {
 } from '../pdf.js';
 import {
   createPaymentOrder,
+  verifyRazorpayPaymentSignature,
   verifyRazorpayWebhookSignature,
 } from '../razorpay.js';
 import type { RelayStore } from '../store.js';
@@ -43,6 +44,24 @@ function extractBearerToken(req: Request): string | undefined {
     return queryToken.trim();
   }
   return undefined;
+}
+
+function completeAndDispatchPaidJob(
+  req: Request,
+  config: RelayConfig,
+  store: RelayStore,
+  wsHub: KioskWsHub,
+  jobIdOrOrderId: string,
+  paymentId?: string
+): { job: PrintJobRecord; dispatched: boolean } | undefined {
+  const result = store.markJobPaidAndGenerateOtp(jobIdOrOrderId, paymentId);
+  if (!result) return undefined;
+
+  const dispatched = result.newlyPaid
+    ? wsHub.dispatchJob(result.job, getBaseUrl(req, config))
+    : result.job.status === 'dispatched';
+
+  return { job: result.job, dispatched };
 }
 
 export function createApiRouter(
@@ -311,6 +330,76 @@ export function createApiRouter(
     res.sendFile(file.storagePath);
   });
 
+  router.post('/jobs/:jobId/verify', (req: Request, res: Response) => {
+    const jobId = String(req.params.jobId || '');
+    const job = store.getJob(jobId);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      razorpay_order_id?: unknown;
+      razorpay_payment_id?: unknown;
+      razorpay_signature?: unknown;
+    };
+    const razorpayOrderId =
+      typeof body.razorpay_order_id === 'string' ? body.razorpay_order_id : '';
+    const razorpayPaymentId =
+      typeof body.razorpay_payment_id === 'string' ? body.razorpay_payment_id : '';
+    const razorpaySignature =
+      typeof body.razorpay_signature === 'string' ? body.razorpay_signature : '';
+
+    if (!razorpayOrderId || razorpayOrderId !== job.orderId) {
+      res.status(400).json({ error: 'Order ID mismatch' });
+      return;
+    }
+
+    if (job.status === 'paid' || job.otp) {
+      res.status(200).json({
+        ok: true,
+        job_id: job.jobId,
+        status: job.status,
+        otp: job.otp,
+        dispatched: job.status === 'dispatched',
+      });
+      return;
+    }
+
+    if (
+      !verifyRazorpayPaymentSignature({
+        orderId: razorpayOrderId,
+        paymentId: razorpayPaymentId,
+        signature: razorpaySignature,
+        keySecret: config.razorpayKeySecret,
+      })
+    ) {
+      res.status(401).json({ error: 'Invalid Razorpay payment signature' });
+      return;
+    }
+
+    const completed = completeAndDispatchPaidJob(
+      req,
+      config,
+      store,
+      wsHub,
+      jobId,
+      razorpayPaymentId
+    );
+    if (!completed) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      job_id: completed.job.jobId,
+      status: completed.job.status,
+      otp: completed.job.otp,
+      dispatched: completed.dispatched,
+    });
+  });
+
   router.post('/webhooks/razorpay', (req: RawBodyRequest, res: Response) => {
     const signature = req.get('x-razorpay-signature');
     const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
@@ -350,21 +439,24 @@ export function createApiRouter(
       return;
     }
 
-    const result = store.markJobPaidAndGenerateOtp(orderId, paymentId);
-    if (!result) {
+    const completed = completeAndDispatchPaidJob(
+      req,
+      config,
+      store,
+      wsHub,
+      orderId,
+      paymentId
+    );
+    if (!completed) {
       res.status(404).json({ error: 'No print job found for order_id' });
       return;
     }
 
-    const dispatched = result.newlyPaid
-      ? wsHub.dispatchJob(result.job, getBaseUrl(req, config))
-      : result.job.status === 'dispatched';
-
     res.status(200).json({
       ok: true,
-      job_id: result.job.jobId,
-      status: result.job.status,
-      dispatched,
+      job_id: completed.job.jobId,
+      status: completed.job.status,
+      dispatched: completed.dispatched,
     });
   });
 
@@ -375,25 +467,25 @@ export function createApiRouter(
     }
 
     const jobId = String(req.params.jobId || '');
-    const result = store.markJobPaidAndGenerateOtp(
+    const completed = completeAndDispatchPaidJob(
+      req,
+      config,
+      store,
+      wsHub,
       jobId,
       `pay_dev_${crypto.randomBytes(6).toString('hex')}`
     );
-    if (!result) {
+    if (!completed) {
       res.status(404).json({ error: 'Job not found' });
       return;
     }
 
-    const dispatched = result.newlyPaid
-      ? wsHub.dispatchJob(result.job, getBaseUrl(req, config))
-      : result.job.status === 'dispatched';
-
     res.status(200).json({
       ok: true,
-      job_id: result.job.jobId,
-      otp: result.job.otp,
-      status: result.job.status,
-      dispatched,
+      job_id: completed.job.jobId,
+      otp: completed.job.otp,
+      status: completed.job.status,
+      dispatched: completed.dispatched,
     });
   });
 

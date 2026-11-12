@@ -8,6 +8,7 @@ import {
   getKioskState,
   listJobs,
   listenKioskEvents,
+  resetMachineIdentity,
   verifyOtpAndPrint,
 } from "./api/tauri";
 import { QrPanel } from "./components/QrPanel";
@@ -30,6 +31,7 @@ const FALLBACK_STATE: KioskState = {
   relayConnected: false,
   relayStatus: "connecting",
   relayMessage: null,
+  relayAuthError: null,
   existingDataPrompt: false,
   existingJobCount: 0,
   storagePath: "",
@@ -41,6 +43,8 @@ const KioskApp: React.FC = () => {
   const [loadError, setLoadError] = useState("");
   const [relayStatus, setRelayStatus] = useState<RelayStatus>("connecting");
   const [relayMessage, setRelayMessage] = useState<string | null>(null);
+  const [relayAuthError, setRelayAuthError] = useState<string | null>(null);
+  const [reRegistering, setReRegistering] = useState(false);
 
   // OTP entry state
   const [otp, setOtp] = useState("");
@@ -87,6 +91,7 @@ const KioskApp: React.FC = () => {
       setKioskState(state);
       setRelayStatus(state.relayStatus);
       setRelayMessage(state.relayMessage);
+      setRelayAuthError(state.relayAuthError);
       if (state.kioskMode === "owner") {
         await refreshJobs();
       }
@@ -115,6 +120,14 @@ const KioskApp: React.FC = () => {
       onRelayStatus: (event) => {
         setRelayStatus(event.status);
         setRelayMessage(event.message);
+        setRelayAuthError(event.authError);
+        setKioskState((prev) => ({
+          ...prev,
+          relayConnected: event.connected,
+          relayStatus: event.status,
+          relayMessage: event.message,
+          relayAuthError: event.authError,
+        }));
       },
     })
       .then((fns) => {
@@ -229,13 +242,37 @@ const KioskApp: React.FC = () => {
     refreshJobs(nextDate);
   };
 
+  const handleReRegister = async () => {
+    setReRegistering(true);
+    try {
+      const next = await resetMachineIdentity();
+      setKioskState(next);
+      setRelayStatus(next.relayStatus);
+      setRelayMessage(next.relayMessage);
+      setRelayAuthError(next.relayAuthError);
+      setLoadError("");
+    } catch (err) {
+      setLoadError(
+        typeof err === "string"
+          ? err
+          : "Failed to re-register kiosk machine ID."
+      );
+    } finally {
+      setReRegistering(false);
+    }
+  };
+
   const isRelayOnline = relayStatus === "connected";
-  const isRelayError = relayStatus === "error" || relayStatus === "disconnected";
+  const hasRelayAuthError = !isRelayOnline && Boolean(relayAuthError);
+  const isRelayError =
+    relayStatus === "error" || relayStatus === "disconnected" || hasRelayAuthError;
   const relayLabel = isRelayOnline
     ? "Relay Online"
-    : isRelayError
-      ? "Relay Offline"
-      : "Connecting...";
+    : hasRelayAuthError
+      ? "Relay Auth Failed"
+      : isRelayError
+        ? "Relay Offline"
+        : "Connecting...";
   const relayDotClass = isRelayOnline
     ? "online"
     : isRelayError
@@ -277,7 +314,7 @@ const KioskApp: React.FC = () => {
 
           <div
             className={`status-pill ${isRelayError ? "error" : ""}`}
-            title={relayMessage ?? undefined}
+            title={relayAuthError ?? relayMessage ?? undefined}
           >
             <span className={`status-dot ${relayDotClass}`} />
             {isRelayOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
@@ -299,6 +336,32 @@ const KioskApp: React.FC = () => {
       {loadError && (
         <div className="status-banner error" style={{ maxWidth: "100%" }}>
           <span>{loadError}</span>
+        </div>
+      )}
+
+      {hasRelayAuthError && (
+        <div
+          className="status-banner error"
+          style={{
+            maxWidth: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <span>
+            Relay authentication failed ({relayAuthError}). Re-register to
+            generate a new machine ID and clear the stale token.
+          </span>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleReRegister}
+            disabled={reRegistering}
+          >
+            {reRegistering ? "Re-registering..." : "Re-register Machine"}
+          </button>
         </div>
       )}
 
@@ -388,6 +451,7 @@ const KioskApp: React.FC = () => {
             setKioskState(next);
             setRelayStatus(next.relayStatus);
             setRelayMessage(next.relayMessage);
+            setRelayAuthError(next.relayAuthError);
             if (next.kioskMode === "owner") {
               refreshJobs();
             }

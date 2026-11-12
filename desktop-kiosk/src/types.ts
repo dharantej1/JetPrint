@@ -14,6 +14,7 @@ export interface KioskState {
   relayConnected: boolean;
   relayStatus: RelayStatus;
   relayMessage: string | null;
+  relayAuthError: string | null;
   existingDataPrompt: boolean;
   existingJobCount: number;
   storagePath: string;
@@ -69,4 +70,5 @@ export interface RelayStatusEvent {
   status: RelayStatus;
   machineId: string;
   message: string | null;
+  authError: string | null;
 }

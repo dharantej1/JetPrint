@@ -24,7 +24,7 @@ pub const EVENT_RELAY_STATUS: &str = "relay-status";
 pub struct RelayHandle {
     pub connected: Arc<AtomicBool>,
     pub reconnect_notify: Arc<Notify>,
-    status: Arc<std::sync::Mutex<(RelayConnectionStatus, Option<String>)>>,
+    status: Arc<std::sync::Mutex<(RelayConnectionStatus, Option<String>, Option<String>)>>,
     outgoing_tx: mpsc::UnboundedSender<String>,
     outgoing_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
@@ -38,6 +38,7 @@ impl RelayHandle {
             status: Arc::new(std::sync::Mutex::new((
                 RelayConnectionStatus::Connecting,
                 None,
+                None,
             ))),
             outgoing_tx,
             outgoing_rx: Arc::new(Mutex::new(Some(outgoing_rx))),
@@ -48,10 +49,10 @@ impl RelayHandle {
         self.connected.load(Ordering::Relaxed)
     }
 
-    pub fn status_snapshot(&self) -> (bool, RelayConnectionStatus, Option<String>) {
+    pub fn status_snapshot(&self) -> (bool, RelayConnectionStatus, Option<String>, Option<String>) {
         let connected = self.is_connected();
         match self.status.lock() {
-            Ok(guard) => (connected, guard.0.clone(), guard.1.clone()),
+            Ok(guard) => (connected, guard.0.clone(), guard.1.clone(), guard.2.clone()),
             Err(_) => (
                 connected,
                 if connected {
@@ -60,7 +61,14 @@ impl RelayHandle {
                     RelayConnectionStatus::Disconnected
                 },
                 None,
+                None,
             ),
+        }
+    }
+
+    pub fn clear_auth_error(&self) {
+        if let Ok(mut guard) = self.status.lock() {
+            guard.2 = None;
         }
     }
 
@@ -214,6 +222,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                 false,
                 RelayConnectionStatus::Connecting,
                 Some("Connecting to relay..."),
+                None,
             );
 
             match connect_async(&ws_url).await {
@@ -237,6 +246,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                                 false,
                                 RelayConnectionStatus::Error,
                                 Some("Auth send failed"),
+                                Some(None),
                             );
                             tokio::time::sleep(Duration::from_secs(3)).await;
                             continue;
@@ -302,6 +312,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                                                     true,
                                                     RelayConnectionStatus::Connected,
                                                     None,
+                                                    Some(None),
                                                 );
                                             }
                                             WsTextAction::AckJob(ack_job_id) => {
@@ -319,6 +330,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                                                     false,
                                                     RelayConnectionStatus::Error,
                                                     Some(&err_msg),
+                                                    Some(Some(&err_msg)),
                                                 );
                                                 let _ = write.close().await;
                                                 break;
@@ -343,6 +355,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                             false,
                             RelayConnectionStatus::Disconnected,
                             Some("Disconnected from relay"),
+                            Some(None),
                         );
                     }
                 }
@@ -356,6 +369,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                         false,
                         RelayConnectionStatus::Error,
                         Some(&msg),
+                        Some(None),
                     );
                 }
             }
@@ -382,11 +396,24 @@ fn set_status(
     connected: bool,
     status: RelayConnectionStatus,
     message: Option<&str>,
+    auth_error: Option<Option<&str>>,
 ) {
     relay.connected.store(connected, Ordering::Relaxed);
-    if let Ok(mut guard) = relay.status.lock() {
-        *guard = (status.clone(), message.map(str::to_string));
-    }
+    let next_auth_error = match relay.status.lock() {
+        Ok(mut guard) => {
+            let resolved_auth_error = match auth_error {
+                Some(explicit) => explicit.map(str::to_string),
+                None => guard.2.clone(),
+            };
+            *guard = (
+                status.clone(),
+                message.map(str::to_string),
+                resolved_auth_error.clone(),
+            );
+            resolved_auth_error
+        }
+        Err(_) => auth_error.flatten().map(str::to_string),
+    };
     let _ = app.emit(
         EVENT_RELAY_STATUS,
         RelayStatusEvent {
@@ -394,6 +421,7 @@ fn set_status(
             status,
             machine_id: machine_id.to_string(),
             message: message.map(str::to_string),
+            auth_error: next_auth_error,
         },
     );
 }

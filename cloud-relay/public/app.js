@@ -757,7 +757,35 @@
           preferences: { show_default_blocks: true },
         },
       },
-      handler: () => {
+      handler: async (response) => {
+        if (state.razorpayPollTimer) {
+          clearInterval(state.razorpayPollTimer);
+          state.razorpayPollTimer = null;
+        }
+        try {
+          const res = await fetch(
+            `/api/jobs/${encodeURIComponent(job.job_id)}/verify`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response?.razorpay_order_id,
+                razorpay_payment_id: response?.razorpay_payment_id,
+                razorpay_signature: response?.razorpay_signature,
+              }),
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.otp) {
+              onPaymentConfirmed(job.job_id, data.otp);
+              return;
+            }
+          }
+          showError('Payment received; confirming with server…');
+        } catch {
+          showError('Payment received; confirming with server…');
+        }
         startRazorpayPolling(job.job_id);
       },
     };
@@ -784,6 +812,11 @@
   }
 
   function onPaymentConfirmed(jobId, otp) {
+    if (state.razorpayPollTimer) {
+      clearInterval(state.razorpayPollTimer);
+      state.razorpayPollTimer = null;
+    }
+    showError('');
     const files = state.docs.map((d) => ({
       filename: d.file?.name || 'Document',
       pageCount: d.pageCount || 1,

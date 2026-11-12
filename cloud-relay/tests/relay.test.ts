@@ -6,6 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createRelayServer, type RelayServerInstance } from '../src/app.js';
+import { verifyRazorpayPaymentSignature } from '../src/razorpay.js';
 
 function connectWs(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -408,5 +409,184 @@ describe('JetPrint Cloud Relay', () => {
     expect(statusBody.status).toBe('printed');
 
     ws.close();
+  });
+
+  it('verifies Razorpay payment signatures with timing-safe comparison', () => {
+    const orderId = 'order_test_123';
+    const paymentId = 'pay_test_456';
+    const keySecret = 'rzp_test_secret_abc';
+    const validSig = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    expect(
+      verifyRazorpayPaymentSignature({
+        orderId,
+        paymentId,
+        signature: validSig,
+        keySecret,
+      })
+    ).toBe(true);
+
+    expect(
+      verifyRazorpayPaymentSignature({
+        orderId,
+        paymentId,
+        signature: '0'.repeat(validSig.length),
+        keySecret,
+      })
+    ).toBe(false);
+
+    expect(
+      verifyRazorpayPaymentSignature({
+        orderId,
+        paymentId,
+        signature: 'short_invalid_sig',
+        keySecret,
+      })
+    ).toBe(false);
+
+    expect(
+      verifyRazorpayPaymentSignature({
+        orderId,
+        paymentId,
+        signature: validSig,
+        keySecret: undefined,
+      })
+    ).toBe(false);
+  });
+
+  it('handles POST /api/jobs/:jobId/verify (404, 400 order mismatch, 401 bad signature, 200 valid + idempotent)', async () => {
+    const keySecret = 'rzp_verify_secret_789';
+    const customUploadDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jetprint-verify-test-'));
+    const verifyServer = createRelayServer({
+      port: 0,
+      uploadDir: customUploadDir,
+      razorpayKeySecret: keySecret,
+      devMode: true,
+    });
+    const port = await verifyServer.start();
+    const vBaseUrl = `http://127.0.0.1:${port}`;
+    const vWsUrl = `ws://127.0.0.1:${port}/ws`;
+
+    try {
+      const ws = await connectWs(vWsUrl);
+      ws.send(JSON.stringify({ type: 'register', machine_id: 'verify-kiosk' }));
+      await nextMessage(ws);
+
+      // 404 for unknown job
+      const notFoundRes = await fetch(`${vBaseUrl}/api/jobs/job_missing/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: 'order_123',
+          razorpay_payment_id: 'pay_123',
+          razorpay_signature: 'abc',
+        }),
+      });
+      expect(notFoundRes.status).toBe(404);
+
+      // Create job
+      const pdfBuffer = await makeTestPdf(1);
+      const form = new FormData();
+      form.append('machine_id', 'verify-kiosk');
+      form.append(
+        'files',
+        new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' }),
+        'doc.pdf'
+      );
+      const uploadRes = await fetch(`${vBaseUrl}/api/jobs`, {
+        method: 'POST',
+        body: form,
+      });
+      expect(uploadRes.status).toBe(201);
+      const job = (await uploadRes.json()) as { job_id: string; order_id: string };
+
+      // 400 for mismatched order_id
+      const mismatchRes = await fetch(`${vBaseUrl}/api/jobs/${job.job_id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: 'order_wrong',
+          razorpay_payment_id: 'pay_valid_1',
+          razorpay_signature: 'sig',
+        }),
+      });
+      expect(mismatchRes.status).toBe(400);
+
+      // 401 for invalid signature
+      const badSigRes = await fetch(`${vBaseUrl}/api/jobs/${job.job_id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: job.order_id,
+          razorpay_payment_id: 'pay_valid_1',
+          razorpay_signature: 'invalid_signature',
+        }),
+      });
+      expect(badSigRes.status).toBe(401);
+
+      // 200 for valid signature -> generates OTP and dispatches to WS
+      const paymentId = 'pay_valid_1';
+      const validSig = crypto
+        .createHmac('sha256', keySecret)
+        .update(`${job.order_id}|${paymentId}`)
+        .digest('hex');
+
+      const dispatchPromise = nextMessage<{ type: string; job_id: string; otp: string }>(ws);
+      const okRes = await fetch(`${vBaseUrl}/api/jobs/${job.job_id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: job.order_id,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: validSig,
+        }),
+      });
+      expect(okRes.status).toBe(200);
+      const okBody = (await okRes.json()) as {
+        ok: boolean;
+        job_id: string;
+        status: string;
+        otp: string;
+        dispatched: boolean;
+      };
+      expect(okBody.ok).toBe(true);
+      expect(okBody.job_id).toBe(job.job_id);
+      expect(okBody.status).toBe('dispatched');
+      expect(okBody.otp).toMatch(/^\d{6}$/);
+      expect(okBody.dispatched).toBe(true);
+
+      const dispatch = await dispatchPromise;
+      expect(dispatch.type).toBe('job_dispatch');
+      expect(dispatch.otp).toBe(okBody.otp);
+
+      // 200 idempotent repeat call
+      const repeatRes = await fetch(`${vBaseUrl}/api/jobs/${job.job_id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_order_id: job.order_id,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: validSig,
+        }),
+      });
+      expect(repeatRes.status).toBe(200);
+      const repeatBody = (await repeatRes.json()) as {
+        ok: boolean;
+        job_id: string;
+        status: string;
+        otp: string;
+      };
+      expect(repeatBody.ok).toBe(true);
+      expect(repeatBody.otp).toBe(okBody.otp);
+      expect(repeatBody.status).toBe('dispatched');
+
+      ws.close();
+    } finally {
+      await verifyServer.close();
+      await fs.rm(customUploadDir, { recursive: true, force: true });
+    }
   });
 });

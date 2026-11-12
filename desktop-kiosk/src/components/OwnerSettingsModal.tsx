@@ -22,6 +22,7 @@ import {
   listPrinters,
   openLogsWindow,
   pickStorageFolder,
+  resetMachineIdentity,
   resetPasswordWithPhrase,
   resolveStoragePreviewPath,
   setStoragePath,
@@ -419,6 +420,35 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                     <span>Reconnect</span>
                   </button>
                 </div>
+                {kioskState.relayAuthError && (
+                  <div
+                    className="status-banner error"
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>Auth failed: {kioskState.relayAuthError}</span>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() =>
+                        resetMachineIdentity()
+                          .then((s) => onStateUpdated(s))
+                          .catch((err) =>
+                            setSaveError(
+                              typeof err === "string" ? err : "Failed to re-register machine."
+                            )
+                          )
+                      }
+                    >
+                      Re-register Machine
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="form-group">

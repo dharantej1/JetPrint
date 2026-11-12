@@ -96,6 +96,7 @@ pub struct KioskState {
     pub relay_connected: bool,
     pub relay_status: RelayConnectionStatus,
     pub relay_message: Option<String>,
+    pub relay_auth_error: Option<String>,
     pub existing_data_prompt: bool,
     pub existing_job_count: usize,
     pub storage_path: String,
@@ -217,5 +218,6 @@ pub struct RelayStatusEvent {
     pub status: RelayConnectionStatus,
     pub machine_id: String,
     pub message: Option<String>,
+    pub auth_error: Option<String>,
 }
 

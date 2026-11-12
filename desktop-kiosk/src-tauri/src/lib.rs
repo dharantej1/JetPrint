@@ -16,8 +16,8 @@ use tauri::Manager;
 use commands::{
     cancel_job, clear_logs, complete_first_run, connect_relay, get_kiosk_state, get_logs,
     keep_existing_data, list_jobs, list_printers, open_logs_window, pick_storage_folder,
-    reset_installation_data, reset_password_with_phrase, set_storage_path, update_settings,
-    verify_otp_and_print, verify_owner_password, AppState,
+    reset_installation_data, reset_machine_identity, reset_password_with_phrase, set_storage_path,
+    update_settings, verify_otp_and_print, verify_owner_password, AppState,
 };
 use db::{current_exe_fingerprint, Database};
 use logger::AppLogger;
@@ -113,6 +113,7 @@ pub fn run() {
             list_jobs,
             cancel_job,
             connect_relay,
+            reset_machine_identity,
             keep_existing_data,
             reset_installation_data,
             pick_storage_folder,

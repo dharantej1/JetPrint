@@ -65,6 +65,10 @@ export async function connectRelay(relayUrl?: string): Promise<KioskState> {
   return invoke<KioskState>("connect_relay", { relayUrl });
 }
 
+export async function resetMachineIdentity(): Promise<KioskState> {
+  return invoke<KioskState>("reset_machine_identity");
+}
+
 export async function keepExistingData(): Promise<KioskState> {
   return invoke<KioskState>("keep_existing_data");
 }
