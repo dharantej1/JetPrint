@@ -2,13 +2,72 @@
 
 Welcome to **JetPrint Kiosk**! This guide walks you through setting up and running JetPrint in your shop—no technical background required.
 
+> For developer & hosting documentation, see [`DEVELOPER_DOCS.md`](DEVELOPER_DOCS.md) and [`README.md`](README.md).
+
+## Table of Contents
+
+- [1. Installing & Launching JetPrint Kiosk](#1-installing--launching-jetprint-kiosk)
+  - [macOS (Apple Silicon M1–M4 & Intel)](#macos-apple-silicon-m1m4--intel)
+  - [Windows (10 / 11)](#windows-10--11)
+  - [Linux (Ubuntu / Debian & AppImage)](#linux-ubuntu--debian--appimage)
+- [2. First-Run Setup (Owner Password & 12-Word Recovery Phrase)](#2-first-run-setup-owner-password--12-word-recovery-phrase)
+- [3. Opening Owner Settings](#3-opening-owner-settings)
+- [4. Configuring Relay URL, Default Printer, and Per-Page Pricing](#4-configuring-relay-url-default-printer-and-per-page-pricing)
+- [5. Switching Between Self-Service Mode and Owner Mode](#5-switching-between-self-service-mode-and-owner-mode)
+- [6. Resetting a Forgotten Password](#6-resetting-a-forgotten-password)
+- [7. Installing App Updates](#7-installing-app-updates)
+- [8. Troubleshooting](#8-troubleshooting)
+
 ---
 
 ## 1. Installing & Launching JetPrint Kiosk
 
-1. Download the JetPrint installer for your computer (Windows `.exe`/`.msi`, macOS `.dmg`, or Linux `.AppImage`/`.deb`) from your release page and run the installer.
-2. Connect and power on your shop printer, and make sure it is added in your computer's system printer settings.
-3. Open **JetPrint Kiosk**. It launches in fullscreen mode ready for customers.
+Download the installer for your shop computer from the GitHub Releases page, connect your printer, and launch **JetPrint Kiosk** (it opens in fullscreen mode ready for customers).
+
+### macOS (Apple Silicon M1–M4 & Intel)
+
+1. **Download the right `.dmg`**:
+   - For **Apple Silicon** Macs (M1, M2, M3, M4): download the **`aarch64`** `.dmg`.
+   - For **Intel** Macs: download the **`x64`** `.dmg`.
+2. **Install**:
+   - Double-click the `.dmg` file to open it, then drag **JetPrint** into your **Applications** folder.
+3. **If macOS Gatekeeper blocks the first launch** *(common if the build is not Apple-notarized)*:
+   - Open **Finder → Applications**, **right-click** (or Control-click) **JetPrint**, and choose **Open**, then click **Open** in the dialog.
+   - Alternatively, open **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to JetPrint.
+4. **Add & test your shop printer**:
+   - Open **System Settings → Printers & Scanners**, make sure your printer is added and online, and print a test page (set it as the default printer if desired).
+5. **Launch & verify**:
+   - Open **JetPrint** from **Applications**. After completing First-Run Setup, check that the top-right status pill shows **Relay Online** (green dot) and your printer appears in **Owner Settings → Default Printer**.
+
+### Windows (10 / 11)
+
+1. **Download & run the installer**:
+   - Download the **`.exe`** (NSIS) or **`.msi`** installer from the release page and double-click it to install.
+2. **If Windows SmartScreen warns you** *(common for unsigned builds)*:
+   - Click **More info**, then click **Run anyway** to proceed with installation.
+3. **Add & test your shop printer**:
+   - Open **Settings → Bluetooth & devices → Printers & scanners**, confirm your printer is listed and ready, and print a test page (or set it as default).
+4. **Launch & verify**:
+   - Open **JetPrint** from the Start Menu or Desktop shortcut. After First-Run Setup, verify **Relay Online** in the top-right header and select your printer in **Owner Settings → Default Printer**.
+
+### Linux (Ubuntu / Debian & AppImage)
+
+1. **Install via `.deb` or `.AppImage`**:
+   - **`.deb` (Ubuntu / Debian)**:
+     ```bash
+     sudo apt update
+     sudo apt install ./JetPrint_*.deb
+     ```
+   - **`.AppImage`**: Make the file executable and run it:
+     ```bash
+     chmod +x JetPrint_*.AppImage
+     ./JetPrint_*.AppImage
+     ```
+   - *Note:* If using the `.AppImage` on a minimal system, ensure `libwebkit2gtk-4.1-0` and `libcups2` are installed (`sudo apt install libwebkit2gtk-4.1-0 libcups2`).
+2. **Add & test your shop printer**:
+   - Add your printer in **System Settings → Printers** or via the CUPS web interface at `http://localhost:631`, and print a test page.
+3. **Launch & verify**:
+   - Launch **JetPrint** from your application menu (or run the AppImage). After First-Run Setup, verify **Relay Online** in the top-right header and confirm your printer is listed in **Owner Settings → Default Printer**.
 
 ---
 
@@ -50,7 +109,8 @@ Inside **Owner Settings**:
    - Set **Color Price per Page** (default `10.00`).
    - Whenever you save new prices, they automatically sync to the Cloud Relay so customers see the exact price on their phone before paying.
 3. **Cloud Relay URL**:
-   - Enter the web address of your JetPrint Cloud Relay server (for example, `https://relay.yourshop.com` or `http://localhost:3000` for local testing).
+   - Enter the web address of your JetPrint Cloud Relay server (for example, `https://relay.yourshop.com`).
+   - **Important:** For customer phones on cellular data or outside your Wi-Fi, this **must** be a public `https://` Cloud Relay URL (provided by your administrator/host). For local testing on the same Wi-Fi, use your computer's local network IP (such as `http://192.168.1.50:3000`) instead of `localhost` so phones can open the QR code link.
 4. Click **Save Settings**.
    - Check the top-right status pill on the main screen: **Relay Online** (green dot) confirms the kiosk is connected and ready to receive jobs.
 
@@ -89,3 +149,14 @@ JetPrint automatically checks for new versions when it starts:
 2. Open **Owner Settings** and unlock with your password.
 3. At the top of the settings window, you will see an **"Update Available Version X.Y.Z"** banner.
 4. Click **Install Update & Restart**. JetPrint will download, verify, and install the update, then restart automatically.
+
+---
+
+## 8. Troubleshooting
+
+| Issue | How to Fix |
+|---|---|
+| **Customer phone cannot open QR code** | Ensure **Cloud Relay URL** in Owner Settings is a public `https://` URL (for cellular data) or your computer's LAN IP (`http://192.168.x.x:3000` for same-Wi-Fi testing), not `localhost`. |
+| **Header shows "Connecting..." instead of "Relay Online"** | Check your internet connection, verify the **Cloud Relay URL** in Owner Settings has no typos, and click **Save Settings** to reconnect. |
+| **Printer not listed or fails to print** | Confirm the printer is powered on, connected, and added in your OS printer settings (macOS Printers & Scanners / Windows Printers & scanners / Linux CUPS), then reopen **Owner Settings** and select it under **Default Printer**. |
+| **Forgot Owner Password** | Click **Forgot Password? Reset with 12-word Phrase** in the Owner Authentication modal and enter the 12-word recovery phrase saved during First-Run Setup. |

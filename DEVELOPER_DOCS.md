@@ -1,6 +1,23 @@
 # JetPrint Developer Documentation
 
-Technical reference for the JetPrint system: architecture, Cloud Relay HTTP/WebSocket APIs, Tauri v2 Rust backend, React/TypeScript frontend, and GitHub Actions release pipeline.
+Technical reference for the JetPrint system: architecture, Cloud Relay HTTP/WebSocket APIs, Tauri v2 Rust backend, React/TypeScript frontend, production deployment, and GitHub Actions release pipeline.
+
+> See [`README.md`](README.md) for quick-start instructions, [`OWNER_SETUP_GUIDE.md`](OWNER_SETUP_GUIDE.md) for shop-owner setup, and [`desktop-kiosk/src-tauri/UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md) for signing key setup.
+
+## Table of Contents
+
+- [1. System Architecture & Data Flow](#1-system-architecture--data-flow)
+- [2. Cloud Relay (`cloud-relay/`)](#2-cloud-relay-cloud-relay)
+  - [Environment Variables (`cloud-relay/.env.example`)](#environment-variables-cloud-relayenvexample)
+  - [HTTP Endpoints (`cloud-relay/src/routes/api.ts` & `app.ts`)](#http-endpoints-cloud-relaysrcroutesapits--appts)
+  - [WebSocket Protocol (`/ws`, `cloud-relay/src/ws.ts`)](#websocket-protocol-ws-cloud-relaysrcwsts)
+- [3. Tauri v2 Rust Backend (`desktop-kiosk/src-tauri/`)](#3-tauri-v2-rust-backend-desktop-kiosksrc-tauri)
+  - [Modules](#modules)
+  - [Tauri Commands (`src/commands.rs`) & Events](#tauri-commands-srccommandsrs--events)
+- [4. React / TypeScript Frontend (`desktop-kiosk/src/`)](#4-react--typescript-frontend-desktop-kiosksrc)
+- [5. GitHub Actions Release Pipeline & Auto-Updater](#5-github-actions-release-pipeline--auto-updater)
+- [6. Production Deployment & Shop Onboarding](#6-production-deployment--shop-onboarding)
+- [7. Local Development & Testing Commands](#7-local-development--testing-commands)
 
 ---
 
@@ -52,8 +69,8 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 | `GET /upload?machine_id=<id>` | Serves the mobile-responsive upload & UPI checkout web app (`cloud-relay/public/`). |
 | `GET /api/health` | Health check and current payment mode (`devMode`). |
 | `GET /api/machines/:machineId` | Returns kiosk online status and synced pricing (`bwPerPagePaise`, `colorPerPagePaise`, `shopName`). |
-| `POST /api/jobs` | Accepts multipart `files`, `machine_id`, `copies`, `color`; detects PDF page counts; calculates amount in paise; creates Razorpay order (or dev order). |
-| `GET /api/jobs/:jobId/status` | Polls job payment status and returns the 6-digit `otp` once paid. |
+| `POST /api/jobs` | Accepts multipart `files`, `machine_id`, `copies`, `color` (plus `per_file_settings`); detects PDF page counts; calculates amount in paise; creates Razorpay order (or dev order). |
+| `GET /api/jobs/:jobId/status` | Polls job payment/print status and returns the 6-digit `otp` once paid. |
 | `GET /api/jobs/:jobId/files/:fileId` | Downloads an uploaded file. Requires `Authorization: Bearer <auth_token>` header (or `?token=<auth_token>`). |
 | `POST /api/webhooks/razorpay` | Verifies `x-razorpay-signature` for `payment.captured` / `order.paid`, generates 6-digit OTP, and pushes `job_dispatch` via WebSocket. |
 | `POST /api/dev/jobs/:jobId/pay` | Simulates payment completion when `devMode` is active (disabled when Razorpay keys are configured). |
@@ -65,11 +82,32 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `auth`: `{ "type": "auth", "machine_id": string, "auth_token"?: string, "pricing": { "bwPerPagePaise", "colorPerPagePaise" } }`
   - `pricing_update`: `{ "type": "pricing_update", "bwPerPagePaise": number, "colorPerPagePaise": number, "shopName"?: string }`
   - `job_ack`: `{ "type": "job_ack", "job_id": string }`
+  - `job_status_update`: `{ "type": "job_status_update", "job_id": string, "status": "printing" | "printed" | "failed", "error"?: string }`
   - `ping`: `{ "type": "ping" }`
 - **Relay -> Kiosk**:
   - `registered` / `auth_ok`: `{ "type": "registered" | "auth_ok", "machine_id": string, "auth_token": string, "pricing": { ... } }`
   - `pricing_ack`: `{ "type": "pricing_ack", "pricing": { ... } }`
-  - `job_dispatch`: `{ "type": "job_dispatch", "job_id": string, "otp": string, "amount_paise": number, "print_settings": { "copies": number, "color": boolean }, "files": [{ "file_id", "filename", "mime_type", "size_bytes", "page_count", "download_url" }], "created_at": string }`
+  - `job_dispatch`:
+    ```json
+    {
+      "type": "job_dispatch",
+      "job_id": "job_...",
+      "otp": "482910",
+      "amount_paise": 1200,
+      "print_settings": { "copies": 2, "color": false },
+      "files": [
+        {
+          "file_id": "file_...",
+          "filename": "doc.pdf",
+          "mime_type": "application/pdf",
+          "size_bytes": 12345,
+          "page_count": 3,
+          "download_url": "https://relay.example.com/api/jobs/job_.../files/file_..."
+        }
+      ],
+      "created_at": "2026-11-12T07:00:00.000Z"
+    }
+    ```
   - `pong`: `{ "type": "pong" }`
   - `error`: `{ "type": "error", "code"?: string, "message": string }`
 
@@ -128,18 +166,51 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 ## 5. GitHub Actions Release Pipeline & Auto-Updater
 
-- **Config (`desktop-kiosk/src-tauri/tauri.conf.json`)**:
+- **Config ([`desktop-kiosk/src-tauri/tauri.conf.json`](desktop-kiosk/src-tauri/tauri.conf.json))**:
   - `bundle.createUpdaterArtifacts: true`
   - `plugins.updater.endpoints`: `https://github.com/dharantej1/JetPrint/releases/latest/download/updater.json`
-  - `plugins.updater.pubkey`: Must be replaced with your generated public key (see `desktop-kiosk/src-tauri/UPDATER_SETUP.md`).
-- **Workflow (`.github/workflows/release.yml`)**:
+  - `plugins.updater.pubkey`: Must be replaced with your generated public key (see [`desktop-kiosk/src-tauri/UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
+- **Workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
   - Triggers on pushing tags matching `v*`.
   - Matrix builds: `macos-latest` (`aarch64-apple-darwin`, `x86_64-apple-darwin`), `ubuntu-22.04` (installs `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`), and `windows-latest`.
   - Uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
 
 ---
 
-## 6. Local Development & Testing Commands
+## 6. Production Deployment & Shop Onboarding
+
+### Hosting `cloud-relay/`
+
+`cloud-relay/` **must** be deployed on a **persistent Node.js host that supports WebSockets (`wss://`)**—such as **Render**, **Railway**, **Fly.io**, or a **VPS** (e.g., DigitalOcean, AWS EC2, Hetzner).
+
+> **Why not Vercel / serverless?** Stateless serverless platforms cannot maintain persistent Kiosk WebSocket connections (`/ws`) or store temporary uploaded files (`UPLOAD_DIR`) across requests.
+
+#### Recommended Deployment Settings
+
+| Setting | Value |
+|---|---|
+| **Root Directory** | `cloud-relay` |
+| **Build Command** | `npm install && npm run build` |
+| **Start Command** | `npm start` |
+| **Required Env Vars** | `PUBLIC_URL=https://<your-relay-domain>`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
+
+#### Razorpay Webhook Setup
+
+1. In the **Razorpay Dashboard → Settings → Webhooks**, add a new webhook:
+   - **Webhook URL**: `https://<your-relay-domain>/api/webhooks/razorpay`
+   - **Secret**: Set to the exact value of `RAZORPAY_WEBHOOK_SECRET` in your Cloud Relay environment.
+   - **Active Events**: Enable `payment.captured` (and optionally `order.paid`).
+
+### Delivering & Onboarding a Shop Owner
+
+1. **Generate Updater Signing Keypair**: Run `npx tauri signer generate -w ~/.tauri/jetprint.key` and place the public key in `desktop-kiosk/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`).
+2. **Configure GitHub Secrets**: Add `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in **Settings → Secrets and variables → Actions**.
+3. **Build Release Installers**: Push a version tag (`git tag v0.1.0 && git push origin v0.1.0`) to trigger `.github/workflows/release.yml` and publish installers + `updater.json` on GitHub Releases.
+4. **Onboard the Shop**: Share the OS-specific installer and [`OWNER_SETUP_GUIDE.md`](OWNER_SETUP_GUIDE.md) along with the shop's public `https://` Cloud Relay URL.
+
+---
+
+## 7. Local Development & Testing Commands
 
 ```bash
 # Cloud Relay: typecheck, test, run
