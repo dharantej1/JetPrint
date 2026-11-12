@@ -18,6 +18,7 @@ import { OwnerModeQueue } from "./components/OwnerModeQueue";
 const FALLBACK_STATE: KioskState = {
   machineId: "LOADING",
   relayUrl: "http://localhost:3000",
+  qrRelayUrl: "http://localhost:3000",
   bwPricePaise: 200,
   colorPricePaise: 1000,
   defaultPrinter: null,
@@ -228,7 +229,7 @@ export const App: React.FC = () => {
 
       <main className="kiosk-main">
         <QrPanel
-          relayUrl={kioskState.relayUrl}
+          relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}
           machineId={kioskState.machineId}
           bwPricePaise={kioskState.bwPricePaise}
           colorPricePaise={kioskState.colorPricePaise}

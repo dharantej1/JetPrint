@@ -18,10 +18,40 @@ pub struct AppState {
     pub relay: RelayHandle,
 }
 
+fn detect_lan_ipv4() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    // UDP connect selects the outbound interface via the OS routing table without sending packets.
+    socket.connect("8.8.8.8:80").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) if !ip.is_loopback() => Some(ip.to_string()),
+        _ => None,
+    }
+}
+
+fn resolve_qr_relay_url(relay_url: &str) -> String {
+    let trimmed = relay_url.trim().trim_end_matches('/');
+    let Ok(mut parsed) = reqwest::Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+
+    if matches!(
+        parsed.host_str(),
+        Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+    ) {
+        if let Some(lan_ip) = detect_lan_ipv4() {
+            let _ = parsed.set_host(Some(&lan_ip));
+        }
+    }
+
+    parsed.to_string().trim_end_matches('/').to_string()
+}
+
 fn to_kiosk_state(cfg: AppConfig, relay_connected: bool) -> KioskState {
+    let qr_relay_url = resolve_qr_relay_url(&cfg.relay_url);
     KioskState {
         machine_id: cfg.machine_id,
         relay_url: cfg.relay_url,
+        qr_relay_url,
         bw_price_paise: cfg.bw_price_paise,
         color_price_paise: cfg.color_price_paise,
         default_printer: cfg.default_printer,

@@ -71,6 +71,7 @@ pub struct AppConfig {
 pub struct KioskState {
     pub machine_id: String,
     pub relay_url: String,
+    pub qr_relay_url: String,
     pub bw_price_paise: i64,
     pub color_price_paise: i64,
     pub default_printer: Option<String>,

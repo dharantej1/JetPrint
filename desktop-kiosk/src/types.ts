@@ -4,6 +4,7 @@ export type JobStatus = "pending" | "printing" | "printed" | "failed";
 export interface KioskState {
   machineId: string;
   relayUrl: string;
+  qrRelayUrl: string;
   bwPricePaise: number;
   colorPricePaise: number;
   defaultPrinter: string | null;
