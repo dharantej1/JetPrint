@@ -30,7 +30,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IFJFUExBQ0VfV0lUSF9ZT1VSX1BVQktFWQpSV1FSUlJFUExBQ0VfV0lUSF9ZT1VSX1BVQktFWV9CQVNFNjRfQ09OVEVOVF9IRVJFCg==",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3NjA0OThEMzA1QUU2RDcKUldUWDVsb3dqVWxnWjg5bmhtVlhGL25HajZjWFFHNHhsSnRzTk04VkdoYWoySWpnbE1hQW16M3YK",
       "endpoints": [
         "https://github.com/dharantej1/JetPrint/releases/latest/download/updater.json"
       ]
