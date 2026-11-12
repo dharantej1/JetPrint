@@ -1,6 +1,6 @@
 # JetPrint Owner Setup Guide
 
-Welcome to **JetPrint Kiosk**! This guide walks you through installing, setting up, and running JetPrint in your shop—no technical background required.
+**JetPrint Kiosk** setup guide for shop owners — no technical background required.
 
 > For developer & hosting documentation, see [`DEVELOPER_DOCS.md`](DEVELOPER_DOCS.md) and [`README.md`](README.md).
 
@@ -25,109 +25,95 @@ Welcome to **JetPrint Kiosk**! This guide walks you through installing, setting 
 
 ## 1. Installing & Launching JetPrint Kiosk
 
-Download the installer for your shop computer from the GitHub Releases page, connect your printer, and launch **JetPrint Kiosk** (it opens in fullscreen mode ready for customers).
+Download the installer for your OS from the GitHub Releases page, connect your printer, and launch **JetPrint Kiosk**.
 
 ### macOS (Apple Silicon M1–M4 & Intel)
 
 1. **Download the right `.dmg`**:
-   - For **Apple Silicon** Macs (M1, M2, M3, M4): download the **`aarch64`** `.dmg`.
-   - For **Intel** Macs: download the **`x64`** `.dmg`.
-2. **Install**:
-   - Double-click the `.dmg` file to open it, then drag **JetPrint** into your **Applications** folder.
-3. **If macOS Gatekeeper blocks the first launch** *(common if the build is not Apple-notarized)*:
-   - Open **Finder → Applications**, **right-click** (or Control-click) **JetPrint**, and choose **Open**, then click **Open** in the dialog.
-   - Alternatively, open **System Settings → Privacy & Security**, scroll to the Security section, and click **Open Anyway** next to JetPrint.
-4. **Add & test your shop printer**:
-   - Open **System Settings → Printers & Scanners**, make sure your printer is added and online, and print a test page (set it as the default printer if desired).
-5. **Launch & verify**:
-   - Open **JetPrint** from **Applications**. Complete the [3-Step First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps) (or choose an option if prompted for [existing data](#2-reinstalling-or-upgrading-start-fresh-vs-keep-previous-data)), then check that the top-right status pill shows **Relay Online** (green dot).
+   - **Apple Silicon** (M1–M4): download the **`aarch64`** `.dmg`.
+   - **Intel**: download the **`x64`** `.dmg`.
+2. **Install**: Double-click the `.dmg`, then drag **JetPrint** into **Applications**.
+3. **If macOS Gatekeeper blocks launch**:
+   - In **Finder → Applications**, right-click **JetPrint** and choose **Open**, then click **Open**.
+   - Or go to **System Settings → Privacy & Security** and click **Open Anyway**.
+4. **Add your printer**: Open **System Settings → Printers & Scanners**, add your printer, and print a test page.
+5. **Launch**: Open **JetPrint** from Applications, complete the [First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps), and confirm the status pill shows **Relay Online**.
 
 ### Windows (10 / 11)
 
-1. **Download & run the installer**:
-   - Download the **`.exe`** (NSIS) or **`.msi`** installer from the release page and double-click it to install.
-2. **If Windows SmartScreen warns you** *(common for unsigned builds)*:
-   - Click **More info**, then click **Run anyway** to proceed with installation.
-3. **Add & test your shop printer**:
-   - Open **Settings → Bluetooth & devices → Printers & scanners**, confirm your printer is listed and ready, and print a test page (or set it as default).
-4. **Launch & verify**:
-   - Open **JetPrint** from the Start Menu or Desktop shortcut. Complete the [3-Step First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps) (or choose an option if prompted for [existing data](#2-reinstalling-or-upgrading-start-fresh-vs-keep-previous-data)), then verify **Relay Online** in the top-right header.
+1. **Download & install**: Run the **`.exe`** (NSIS) or **`.msi`** installer from the release page.
+2. **If Windows SmartScreen warns you**: Click **More info → Run anyway**.
+3. **Add your printer**: Open **Settings → Bluetooth & devices → Printers & scanners**, confirm your printer is listed, and print a test page.
+4. **Launch**: Open **JetPrint** from the Start Menu, complete the [First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps), and verify **Relay Online** in the header.
 
 ### Linux (Ubuntu / Debian & AppImage)
 
-1. **Install via `.deb` or `.AppImage`**:
-   - **`.deb` (Ubuntu / Debian)**:
+1. **Install**:
+   - **`.deb`**:
      ```bash
      sudo apt update
      sudo apt install ./JetPrint_*.deb
      ```
-   - **`.AppImage`**: Make the file executable and run it:
+   - **`.AppImage`**:
      ```bash
      chmod +x JetPrint_*.AppImage
      ./JetPrint_*.AppImage
      ```
-   - *Note:* If using the `.AppImage` on a minimal system, ensure `libwebkit2gtk-4.1-0` and `libcups2` are installed (`sudo apt install libwebkit2gtk-4.1-0 libcups2`).
-2. **Add & test your shop printer**:
-   - Add your printer in **System Settings → Printers** or via the CUPS web interface at `http://localhost:631`, and print a test page.
-3. **Launch & verify**:
-   - Launch **JetPrint** from your application menu (or run the AppImage). Complete the [3-Step First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps) (or choose an option if prompted for [existing data](#2-reinstalling-or-upgrading-start-fresh-vs-keep-previous-data)), then verify **Relay Online** in the top-right header.
+     *Requires `libwebkit2gtk-4.1-0` and `libcups2` on minimal systems (`sudo apt install libwebkit2gtk-4.1-0 libcups2`).*
+2. **Add your printer**: Use **System Settings → Printers** or the CUPS web interface at `http://localhost:631`.
+3. **Launch**: Open **JetPrint** from the app menu, complete the [First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps), and verify **Relay Online** in the header.
 
 ---
 
 ## 2. Reinstalling or Upgrading: "Start Fresh" vs "Keep Previous Data"
 
-JetPrint stores your shop's local database (`jetprint.db`—containing your Machine ID, Owner Password, recovery phrase, printer/pricing settings, and print job history) in your computer's application data folder so it is preserved across app updates and reinstalls.
+JetPrint stores its local database (`jetprint.db` — Machine ID, password, recovery phrase, settings, and job history) in your computer's app data folder, preserved across updates and reinstalls.
 
-When you install or launch a new JetPrint build on a computer that already has existing JetPrint data, an **Existing Data Detected** prompt appears automatically before the kiosk starts, showing your saved **Machine ID** and the number of saved **print job(s)**:
+When a new build detects existing data, an **Existing Data Detected** prompt appears showing your saved **Machine ID** and job count:
 
-- **Keep Previous Data** *(recommended for normal upgrades or reinstalls on the same shop PC)*:
-  - Keeps your existing Machine ID, Owner Password, 12-word recovery phrase, printer/pricing/relay settings, and print job history, and resumes the kiosk immediately.
-- **Start Fresh (Remove Previous Data)** *(recommended when resetting a test machine or setting up a new shop)*:
-  - Permanently deletes all previous print job history and temporary job files, clears old settings and credentials, generates a brand-new Machine ID, and launches the **3-Step First-Run Setup Wizard** from scratch.
-  - Because this cannot be undone, JetPrint asks you to confirm by clicking **Yes, Remove Data & Start Fresh** before erasing previous data.
+- **Keep Previous Data** *(recommended for normal upgrades)*: Keeps your Machine ID, password, recovery phrase, settings, and job history, and resumes immediately.
+- **Start Fresh (Remove Previous Data)** *(recommended when resetting a test machine or new shop)*: Permanently deletes job history, settings, and credentials; generates a new Machine ID; and launches the First-Run Setup Wizard. Requires confirmation (**Yes, Remove Data & Start Fresh**) — this cannot be undone.
 
 ---
 
 ## 3. First-Run Setup Wizard (3 Steps)
 
-The first time you open JetPrint Kiosk (or after choosing **Start Fresh**), the **3-Step First-Run Setup Wizard** appears automatically:
+Appears automatically on first launch or after **Start Fresh**:
 
-1. **Step 1 of 3 — Create Owner Password**:
-   - Your Owner Password protects **Owner Settings** and **Owner Mode** so customers cannot change pricing, printer settings, or access the print queue.
-   - Enter an **Admin Password** (at least 6 characters) and re-enter it under **Confirm Admin Password**.
+1. **Step 1 — Create Owner Password**:
+   - Enter an **Admin Password** (minimum 6 characters) and confirm it.
    - Click **Continue & Generate Recovery Phrase**.
-2. **Step 2 of 3 — Save Your 12-Word Recovery Phrase**:
-   - JetPrint generates a unique **12-word recovery phrase** (numbered 1 to 12).
-   - **Write these 12 words down on paper in exact order** and keep them in a safe place (or click **Copy 12-Word Phrase** to store them in a secure password manager).
-   - **Important:** This 12-word phrase is the **only way** to reset your Owner Password if you ever forget it.
-   - Check the box **"I have saved my recovery phrase"** and click **Continue to Printer & Relay Setup**.
-3. **Step 3 of 3 — Configure Printer, Pricing & Cloud Relay**:
-   - **Default Printer**: Select your shop printer from the dropdown (or leave it on **System Default Printer**).
-   - **Per-Page Pricing (in ₹)**: Set your **B&W Price per Page** (default `2.00`) and **Color Price per Page** (default `10.00`).
-   - **Cloud Relay URL**: Enter the web address of your JetPrint Cloud Relay server (defaults to `http://localhost:3000` for local testing; use your public `https://` URL in production, or your computer's LAN IP such as `http://192.168.1.50:3000` for same-Wi-Fi phone testing).
-   - Click **Save & Launch Kiosk** to save your settings and connect to the Cloud Relay—or click **Skip for Now** to launch immediately and configure these later in **Owner Settings** (accessible anytime via `Ctrl+Shift+S` / `Cmd+Shift+S`, the top-right gear icon, or tapping the bottom-right corner 5 times).
+2. **Step 2 — Save Your 12-Word Recovery Phrase**:
+   - Write all 12 words down in exact order and store them safely (or click **Copy 12-Word Phrase** to save to a password manager).
+   - **This phrase is the only way to reset your password if you forget it.**
+   - Check **"I have saved my recovery phrase"** and click **Continue to Printer & Relay Setup**.
+3. **Step 3 — Configure Printer, Pricing & Cloud Relay**:
+   - **Default Printer**: Select your printer from the dropdown (or leave on **System Default**).
+   - **Per-Page Pricing (₹)**: Set **B&W** (default `2.00`) and **Color** (default `10.00`) prices.
+   - **Cloud Relay URL**: Enter your relay server address (defaults to `http://localhost:3000`; use a public `https://` URL in production or your LAN IP like `http://192.168.1.50:3000` for Wi-Fi testing).
+   - Click **Save & Launch Kiosk** — or **Skip for Now** to configure later in **Owner Settings**.
 
 ---
 
 ## 4. Understanding the Connection Status Pill
 
-Look at the **status pill** in the top-right header of the kiosk screen to see your Cloud Relay connection state at a glance:
+The **status pill** in the top-right header shows your Cloud Relay connection at a glance:
 
 | Status Pill | Indicator | Meaning & Action |
 |---|---|---|
-| **`Relay Online`** | Green dot | **Connected.** The kiosk is connected to the Cloud Relay, pricing is synced, and customer print jobs will arrive automatically. |
-| **`Connecting...`** | Amber/yellow dot | **Connecting or reconnecting.** JetPrint is establishing a connection to the Cloud Relay. Wait a few seconds; if it stays on `Connecting...`, check your internet connection or Cloud Relay URL. |
-| **`Relay Offline`** | Red dot (red-tinted pill) | **Disconnected or unreachable.** The kiosk cannot reach the Cloud Relay (for example, the relay server is down, there is no internet, or the Cloud Relay URL has a typo). Open **Owner Settings**, check **Cloud Relay URL**, and click **Save Settings** to reconnect. |
+| **`Relay Online`** | Green dot | Connected. Pricing is synced and jobs will arrive automatically. |
+| **`Connecting...`** | Amber dot | Connecting or reconnecting. Wait a few seconds; if it persists, check your internet or Cloud Relay URL. |
+| **`Relay Offline`** | Red dot | Disconnected. Check your internet, verify **Cloud Relay URL** in Owner Settings, and click **Save Settings** to reconnect. |
 
 ---
 
 ## 5. Opening Owner Settings
 
-To access shop settings at any time without letting customers in:
+Access shop settings at any time:
 
-- Click the **gear icon** in the top-right corner of the screen, **or**
+- Click the **gear icon** in the top-right corner, **or**
 - Press **`Ctrl + Shift + S`** (Windows/Linux) or **`Cmd + Shift + S`** (macOS), **or**
-- Tap the **bottom-right corner** of the screen **5 times** quickly.
+- Tap the **bottom-right corner** 5 times quickly.
 
 Enter your **Owner Password** and click **Unlock Settings**.
 
@@ -135,51 +121,45 @@ Enter your **Owner Password** and click **Unlock Settings**.
 
 ## 6. Configuring Relay URL, Default Printer, and Per-Page Pricing
 
-Inside **Owner Settings**, you can update your kiosk configuration at any time:
+Inside **Owner Settings**:
 
-1. **Default Printer**:
-   - Choose your shop printer from the **Default Printer** dropdown (or leave it on **System Default Printer**).
-2. **Per-Page Pricing (in ₹)**:
-   - Set **B&W Price per Page** (default `2.00`).
-   - Set **Color Price per Page** (default `10.00`).
-   - Whenever you save new prices, they automatically sync to the Cloud Relay so customers see the exact price on their phone before paying.
-3. **Cloud Relay URL**:
-   - Enter the web address of your JetPrint Cloud Relay server (for example, `https://relay.yourshop.com`).
-   - **Important:** For customer phones on cellular data or outside your Wi-Fi, this **must** be a public `https://` Cloud Relay URL (provided by your administrator/host). For local testing on the same Wi-Fi, use your computer's local network IP (such as `http://192.168.1.50:3000`) instead of `localhost` so phones can open the QR code link.
-4. Click **Save Settings**.
-   - Check the top-right status pill on the main screen: **Relay Online** (green dot) confirms the kiosk is connected and ready to receive jobs.
+1. **Default Printer**: Choose your printer from the dropdown (or leave on **System Default**).
+2. **Per-Page Pricing (₹)**:
+   - Set **B&W Price per Page** (default `2.00`) and **Color Price per Page** (default `10.00`).
+   - Prices sync to the Cloud Relay automatically on save, so customers see the correct price on their phone.
+3. **Cloud Relay URL**: Enter your relay server address (e.g., `https://relay.yourshop.com`).
+   - **For customers on cellular data**, this must be a public `https://` URL. For same-Wi-Fi testing, use your LAN IP (e.g., `http://192.168.1.50:3000`) instead of `localhost`.
+4. Click **Save Settings** and confirm the **Relay Online** pill in the header.
 
 ---
 
 ## 7. Switching Between Self-Service Mode and Owner Mode
 
-In **Owner Settings**, under **Kiosk Operating Mode**, you can switch between two modes and click **Save Settings**:
+In **Owner Settings → Kiosk Operating Mode**, choose a mode and click **Save Settings**:
 
 - **Self-Service Mode** *(recommended for unattended kiosks)*:
-  - Shows the **QR code** on the left and the **6-digit OTP keypad** on the right.
-  - Customers scan the QR code, upload & pay on their phone, receive a 6-digit OTP, and type it into the kiosk keypad to print immediately.
+  - Shows the **QR code** and a **6-digit OTP keypad**.
+  - Customers scan, upload & pay on their phone, receive an OTP, and type it into the keypad to print.
 - **Owner Mode** *(recommended when staff operate the printer)*:
-  - Shows the **QR code** on the left and a live **Print Job Queue** on the right.
-  - Paid jobs appear in the queue automatically so you or your staff can click **Print** directly for each customer.
+  - Shows the **QR code** and a live **Print Job Queue**.
+  - Paid jobs appear automatically; click **Print** for each customer.
 
 ### Filtering the Owner Mode Print Queue by Date
 
-In **Owner Mode**, the Print Queue header includes a date filter bar so you can quickly find today's jobs or review past days:
+The Print Queue header includes a date filter:
 
-- **Today** *(default)*: Shows only print jobs received today.
-- **All**: Shows all saved print jobs across every date (each job's timestamp includes the date and time).
-- **Date Picker (Calendar)**: Click the calendar input to pick any specific past date (up to today) and view only the jobs from that day.
-- The counter on the right displays the total matching jobs (`N job` / `N jobs`), and the **Refresh** button reloads the queue.
+- **Today** *(default)*: Shows only today's jobs.
+- **All**: Shows all saved jobs with timestamps.
+- **Date Picker**: Select any past date to view jobs from that day.
+- The counter on the right shows matching job count; **Refresh** reloads the queue.
 
 ---
 
 ## 8. Resetting a Forgotten Password
 
-If you forget your Owner Password:
-
 1. Open **Owner Settings** (gear icon, `Ctrl+Shift+S`/`Cmd+Shift+S`, or 5-tap corner).
-2. On the **Owner Authentication** screen, click **Forgot Password? Reset with 12-word Phrase**.
-3. Type your **12-Word BIP39 Recovery Phrase** (all 12 words separated by spaces, in order).
+2. Click **Forgot Password? Reset with 12-word Phrase**.
+3. Enter your **12-Word BIP39 Recovery Phrase** (all 12 words in order, space-separated).
 4. Enter a **New Owner Password** (minimum 6 characters) and click **Reset Password**.
 5. Sign in with your new password.
 
@@ -187,13 +167,13 @@ If you forget your Owner Password:
 
 ## 9. Installing App Updates
 
-JetPrint automatically checks for new versions when it starts:
+JetPrint checks for updates on startup:
 
-1. If a new version is available, an **Update vX.Y.Z** button appears in the top-right header.
+1. If an update is available, an **Update vX.Y.Z** button appears in the header.
 2. Open **Owner Settings** and unlock with your password.
-3. At the top of the settings window, you will see an **"Update Available Version X.Y.Z"** banner.
-4. Click **Install Update & Restart**. JetPrint will download, verify, and install the update, then restart automatically.
-5. On launch after updating, if prompted with **Existing Data Detected**, choose **Keep Previous Data** to continue with your existing settings and job history.
+3. An **"Update Available Version X.Y.Z"** banner appears at the top.
+4. Click **Install Update & Restart**. JetPrint downloads, verifies, installs, and restarts automatically.
+5. If prompted with **Existing Data Detected** after restart, choose **Keep Previous Data**.
 
 ---
 
@@ -201,8 +181,8 @@ JetPrint automatically checks for new versions when it starts:
 
 | Issue | How to Fix |
 |---|---|
-| **Customer phone cannot open QR code** | Ensure **Cloud Relay URL** in Owner Settings is a public `https://` URL (for cellular data) or your computer's LAN IP (`http://192.168.x.x:3000` for same-Wi-Fi testing), not `localhost`. |
-| **Header shows `Connecting...` or `Relay Offline` instead of `Relay Online`** | Check your internet connection, confirm the Cloud Relay server is running, verify the **Cloud Relay URL** in **Owner Settings** has no typos, and click **Save Settings** to reconnect. |
-| **Printer not listed or fails to print** | Confirm the printer is powered on, connected, and added in your OS printer settings (macOS Printers & Scanners / Windows Printers & scanners / Linux CUPS), then reopen **Owner Settings** and select it under **Default Printer**. |
-| **Prompted with "Existing Data Detected" after reinstalling** | Choose **Keep Previous Data** to preserve your Machine ID, password, settings, and job history, or **Start Fresh (Remove Previous Data)** to wipe old data and run the 3-step setup wizard again. |
-| **Forgot Owner Password** | Click **Forgot Password? Reset with 12-word Phrase** in the Owner Authentication modal and enter the 12-word recovery phrase saved during First-Run Setup. |
+| **Customer phone cannot open QR code** | Set **Cloud Relay URL** to a public `https://` URL (for cellular) or your LAN IP (`http://192.168.x.x:3000` for same-Wi-Fi testing) — not `localhost`. |
+| **Header shows `Connecting...` or `Relay Offline`** | Check your internet, confirm the Cloud Relay server is running, verify **Cloud Relay URL** in Owner Settings, and click **Save Settings**. |
+| **Printer not listed or fails to print** | Confirm the printer is on, connected, and added in OS settings (macOS Printers & Scanners / Windows Printers & scanners / Linux CUPS), then reselect it in **Owner Settings → Default Printer**. |
+| **Prompted with "Existing Data Detected" after reinstall** | Choose **Keep Previous Data** to keep your settings and history, or **Start Fresh** to wipe and re-run setup. |
+| **Forgot Owner Password** | Click **Forgot Password? Reset with 12-word Phrase** in the Owner Authentication modal and enter your recovery phrase. |
