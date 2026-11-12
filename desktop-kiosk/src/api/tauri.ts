@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -108,12 +109,27 @@ export async function openLogsWindow(): Promise<void> {
   return invoke<void>("open_logs_window");
 }
 
-export async function checkForAppUpdate(): Promise<Update | null> {
+export interface UpdateCheckResult {
+  update: Update | null;
+  error: string | null;
+}
+
+export async function getAppVersion(): Promise<string> {
+  return getVersion();
+}
+
+export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   try {
-    return await check();
+    const update = await check();
+    return { update, error: null };
   } catch (err) {
+    const message =
+      err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
     console.warn("Updater check failed:", err);
-    return null;
+    return {
+      update: null,
+      error: message || "Failed to check for updates.",
+    };
   }
 }
 

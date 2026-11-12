@@ -5,6 +5,7 @@ import type { KioskState, PrintJob, RelayStatus } from "./types";
 import {
   cancelJob,
   checkForAppUpdate,
+  getAppVersion,
   getKioskState,
   listJobs,
   listenKioskEvents,
@@ -68,7 +69,16 @@ const KioskApp: React.FC = () => {
 
   // Owner modal & updater state
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
+
+  const runUpdateCheck = useCallback(async () => {
+    const result = await checkForAppUpdate();
+    setAvailableUpdate(result.update);
+    setUpdateCheckError(result.error);
+    return result;
+  }, []);
 
   // 5-tap corner trigger tracking
   const tapCountRef = useRef(0);
@@ -140,17 +150,19 @@ const KioskApp: React.FC = () => {
       .catch(() => {});
 
     loadState();
-    checkForAppUpdate().then((update) => {
-      if (update) {
-        setAvailableUpdate(update);
-      }
-    });
+    getAppVersion().then(setCurrentVersion).catch(() => {});
+    runUpdateCheck();
+
+    const updateTimer = window.setInterval(() => {
+      runUpdateCheck();
+    }, 4 * 60 * 60 * 1000);
 
     return () => {
       active = false;
+      window.clearInterval(updateTimer);
       unlisteners.forEach((fn) => fn());
     };
-  }, [loadState, refreshJobs]);
+  }, [loadState, refreshJobs, runUpdateCheck]);
 
   // Ctrl+Shift+S / Cmd+Shift+S shortcut to open Owner Settings
   useEffect(() => {
@@ -445,7 +457,10 @@ const KioskApp: React.FC = () => {
       {settingsOpen && (
         <OwnerSettingsModal
           kioskState={kioskState}
+          currentVersion={currentVersion}
           availableUpdate={availableUpdate}
+          updateCheckError={updateCheckError}
+          onCheckForUpdates={runUpdateCheck}
           onClose={() => setSettingsOpen(false)}
           onStateUpdated={(next) => {
             setKioskState(next);

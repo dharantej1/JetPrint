@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { KioskMode, KioskState, PrintJob, PrinterInfo } from "../types";
 import {
+  type UpdateCheckResult,
   connectRelay,
   installUpdateAndRelaunch,
   listJobs,
@@ -33,14 +34,20 @@ import {
 
 interface OwnerSettingsModalProps {
   kioskState: KioskState;
+  currentVersion: string;
   availableUpdate: Update | null;
+  updateCheckError: string | null;
+  onCheckForUpdates: () => Promise<UpdateCheckResult>;
   onClose: () => void;
   onStateUpdated: (next: KioskState) => void;
 }
 
 export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   kioskState,
+  currentVersion,
   availableUpdate,
+  updateCheckError,
+  onCheckForUpdates,
   onClose,
   onStateUpdated,
 }) => {
@@ -76,8 +83,15 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   const [saveError, setSaveError] = useState("");
 
   // Updater state
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [checkedUpToDate, setCheckedUpToDate] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(updateCheckError);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState("");
+
+  useEffect(() => {
+    setCheckError(updateCheckError);
+  }, [updateCheckError]);
 
   // Recent jobs (shown in Owner Mode)
   const [jobs, setJobs] = useState<PrintJob[]>([]);
@@ -174,6 +188,20 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
       setSaveError(typeof err === "string" ? err : "Failed to save settings.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdates(true);
+    setCheckedUpToDate(false);
+    setCheckError(null);
+    setUpdateError("");
+    const result = await onCheckForUpdates();
+    setCheckingUpdates(false);
+    if (result.error) {
+      setCheckError(result.error);
+    } else if (!result.update) {
+      setCheckedUpToDate(true);
     }
   };
 
@@ -309,30 +337,77 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
         {view === "settings" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            {availableUpdate && (
-              <div className="update-banner">
-                <div className="update-info">
-                  <DownloadCloud size={20} color="#818cf8" />
-                  <span>Update Available Version {availableUpdate.version}</span>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "rgba(15, 23, 42, 0.55)",
+                border: "1px solid rgba(148, 163, 184, 0.16)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span className="form-label" style={{ marginBottom: 0 }}>App Version</span>
+                  <span style={{ fontSize: 13, color: "#cbd5e1", fontFamily: "monospace" }}>
+                    {currentVersion ? `v${currentVersion}` : "Unknown"}
+                  </span>
                 </div>
                 <button
                   type="button"
-                  className="btn-primary"
-                  onClick={handleInstallUpdate}
-                  disabled={installingUpdate}
+                  className="btn-secondary"
+                  onClick={handleCheckForUpdates}
+                  disabled={checkingUpdates || installingUpdate}
                 >
-                  {installingUpdate ? (
+                  {checkingUpdates ? (
                     <>
                       <Loader2 size={15} className="spin" />
-                      <span>Installing...</span>
+                      <span>Checking...</span>
                     </>
                   ) : (
-                    <span>Install Update &amp; Restart</span>
+                    <>
+                      <RefreshCw size={15} />
+                      <span>Check for Updates</span>
+                    </>
                   )}
                 </button>
               </div>
-            )}
-            {updateError && <p className="error-text">{updateError}</p>}
+
+              {availableUpdate && (
+                <div className="update-banner">
+                  <div className="update-info">
+                    <DownloadCloud size={20} color="#818cf8" />
+                    <span>Update Available: Version {availableUpdate.version}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleInstallUpdate}
+                    disabled={installingUpdate}
+                  >
+                    {installingUpdate ? (
+                      <>
+                        <Loader2 size={15} className="spin" />
+                        <span>Installing...</span>
+                      </>
+                    ) : (
+                      <span>Install Update &amp; Restart</span>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {!availableUpdate && !checkingUpdates && checkedUpToDate && !checkError && (
+                <p className="success-text" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+                  <CheckCircle2 size={15} /> Up to date
+                </p>
+              )}
+
+              {checkError && <p className="error-text" style={{ margin: 0 }}>{checkError}</p>}
+              {updateError && <p className="error-text" style={{ margin: 0 }}>{updateError}</p>}
+            </div>
 
             <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div className="form-group">
