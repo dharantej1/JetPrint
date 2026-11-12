@@ -107,6 +107,56 @@ pub struct PrinterInfo {
     pub state: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePrintSettings {
+    #[serde(default = "default_copies")]
+    pub copies: u32,
+    #[serde(default)]
+    pub color: bool,
+    #[serde(default = "default_duplex")]
+    pub duplex: String,
+    #[serde(default = "default_orientation")]
+    pub orientation: String,
+    #[serde(default = "default_pages_per_sheet")]
+    pub pages_per_sheet: u32,
+    #[serde(default = "default_page_range")]
+    pub page_range: String,
+}
+
+fn default_copies() -> u32 {
+    1
+}
+
+fn default_duplex() -> String {
+    "1-sided".to_string()
+}
+
+fn default_orientation() -> String {
+    "portrait".to_string()
+}
+
+fn default_pages_per_sheet() -> u32 {
+    1
+}
+
+fn default_page_range() -> String {
+    "all".to_string()
+}
+
+impl Default for FilePrintSettings {
+    fn default() -> Self {
+        Self {
+            copies: default_copies(),
+            color: false,
+            duplex: default_duplex(),
+            orientation: default_orientation(),
+            pages_per_sheet: default_pages_per_sheet(),
+            page_range: default_page_range(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobFile {
@@ -115,6 +165,8 @@ pub struct JobFile {
     pub mime_type: String,
     pub local_path: String,
     pub pages: u32,
+    #[serde(default)]
+    pub settings: Option<FilePrintSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

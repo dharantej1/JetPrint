@@ -7,11 +7,11 @@ use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Notify;
+use tokio::sync::{mpsc, Mutex, Notify};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::db::Database;
-use crate::models::{JobFile, JobStatus, PrintJob, RelayStatusEvent};
+use crate::models::{FilePrintSettings, JobFile, JobStatus, PrintJob, RelayStatusEvent};
 
 pub const EVENT_JOB_RECEIVED: &str = "job-received";
 pub const EVENT_RELAY_STATUS: &str = "relay-status";
@@ -20,13 +20,18 @@ pub const EVENT_RELAY_STATUS: &str = "relay-status";
 pub struct RelayHandle {
     pub connected: Arc<AtomicBool>,
     pub reconnect_notify: Arc<Notify>,
+    outgoing_tx: mpsc::UnboundedSender<String>,
+    outgoing_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
 }
 
 impl RelayHandle {
     pub fn new() -> Self {
+        let (outgoing_tx, outgoing_rx) = mpsc::unbounded_channel();
         Self {
             connected: Arc::new(AtomicBool::new(false)),
             reconnect_notify: Arc::new(Notify::new()),
+            outgoing_tx,
+            outgoing_rx: Arc::new(Mutex::new(Some(outgoing_rx))),
         }
     }
 
@@ -36,6 +41,18 @@ impl RelayHandle {
 
     pub fn trigger_reconnect(&self) {
         self.reconnect_notify.notify_one();
+    }
+
+    /// Queues a `job_status_update` WebSocket message to the Cloud Relay.
+    pub fn send_job_status(&self, job_id: &str, status: &str, error: Option<&str>) {
+        let msg = OutgoingWsMessage::JobStatusUpdate {
+            job_id: job_id.to_string(),
+            status: status.to_string(),
+            error: error.map(str::to_string),
+        };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = self.outgoing_tx.send(json);
+        }
     }
 }
 
@@ -63,6 +80,12 @@ enum OutgoingWsMessage {
     },
     JobAck {
         job_id: String,
+    },
+    JobStatusUpdate {
+        job_id: String,
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
     },
     Ping,
 }
@@ -110,6 +133,8 @@ struct IncomingJobFile {
     download_url: String,
     #[serde(default = "default_pages")]
     page_count: u32,
+    #[serde(default)]
+    settings: Option<FilePrintSettings>,
 }
 
 fn default_pages() -> u32 {
@@ -138,6 +163,11 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
             .timeout(Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+
+        let mut outgoing_rx = {
+            let mut guard = relay.outgoing_rx.lock().await;
+            guard.take()
+        };
 
         loop {
             let config = match db.get_config() {
@@ -187,6 +217,18 @@ pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
                             _ = relay.reconnect_notify.notified() => {
                                 let _ = write.close().await;
                                 break;
+                            }
+                            outgoing = async {
+                                match outgoing_rx.as_mut() {
+                                    Some(rx) => rx.recv().await,
+                                    None => std::future::pending().await,
+                                }
+                            } => {
+                                if let Some(json) = outgoing {
+                                    if write.send(Message::Text(json.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
                             }
                             _ = heartbeat.tick() => {
                                 if let Ok(json) = serde_json::to_string(&OutgoingWsMessage::Ping) {
@@ -330,6 +372,7 @@ async fn handle_ws_text(
                     mime_type: f.mime_type,
                     local_path: dest.to_string_lossy().to_string(),
                     pages: f.page_count,
+                    settings: f.settings,
                 });
             }
 
@@ -390,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_cloud_relay_job_dispatch_schema() {
+    fn parses_cloud_relay_job_dispatch_with_per_file_settings() {
         let json = r#"{
             "type": "job_dispatch",
             "job_id": "job-123",
@@ -403,7 +446,15 @@ mod tests {
                 "mime_type": "application/pdf",
                 "size_bytes": 1024,
                 "page_count": 4,
-                "download_url": "/api/jobs/job-123/files/f-1"
+                "download_url": "/api/jobs/job-123/files/f-1",
+                "settings": {
+                    "copies": 3,
+                    "color": false,
+                    "duplex": "2-sided",
+                    "orientation": "landscape",
+                    "pagesPerSheet": 2,
+                    "pageRange": "1-3"
+                }
             }],
             "created_at": "2026-11-12T07:00:00Z"
         }"#;
@@ -423,8 +474,29 @@ mod tests {
                 assert!(print_settings.color);
                 assert_eq!(files.len(), 1);
                 assert_eq!(files[0].page_count, 4);
+                let s = files[0].settings.as_ref().expect("per-file settings");
+                assert_eq!(s.copies, 3);
+                assert!(!s.color);
+                assert_eq!(s.duplex, "2-sided");
+                assert_eq!(s.orientation, "landscape");
+                assert_eq!(s.pages_per_sheet, 2);
+                assert_eq!(s.page_range, "1-3");
             }
             _ => panic!("expected JobDispatch"),
         }
+    }
+
+    #[test]
+    fn serializes_job_status_update_message() {
+        let msg = OutgoingWsMessage::JobStatusUpdate {
+            job_id: "job-123".to_string(),
+            status: "failed".to_string(),
+            error: Some("Printer offline".to_string()),
+        };
+        let val: serde_json::Value = serde_json::to_value(&msg).expect("serialize");
+        assert_eq!(val["type"], "job_status_update");
+        assert_eq!(val["job_id"], "job-123");
+        assert_eq!(val["status"], "failed");
+        assert_eq!(val["error"], "Printer offline");
     }
 }

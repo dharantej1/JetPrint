@@ -208,6 +208,18 @@ export class RelayStore {
     }
   }
 
+  updateJobStatus(
+    jobId: string,
+    status: 'printing' | 'printed' | 'failed',
+    error?: string
+  ): PrintJobRecord | undefined {
+    const job = this.jobs.get(jobId);
+    if (!job) return undefined;
+    job.status = status;
+    job.statusError = error;
+    return job;
+  }
+
   queuePendingJob(machineId: string, jobId: string): void {
     const list = this.pendingDispatch.get(machineId) ?? [];
     if (!list.includes(jobId)) {

@@ -293,4 +293,120 @@ describe('JetPrint Cloud Relay', () => {
 
     ws.close();
   });
+
+  it('calculates per-file settings pricing, dispatches per-file settings, and handles job_status_update', async () => {
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'qwik-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    await nextMessage(ws);
+
+    const pdf5 = await makeTestPdf(5);
+    const pngDummy = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+    const perFileSettings = [
+      {
+        copies: 2,
+        color: false,
+        duplex: '2-sided',
+        orientation: 'landscape',
+        pagesPerSheet: 2,
+        pageRange: '1-3,5', // 4 selected pages -> ceil(4/2)*2 = 4 sheets * 200 = 800 paise
+      },
+      {
+        copies: 1,
+        color: true,
+        duplex: '1-sided',
+        orientation: 'portrait',
+        pagesPerSheet: 1,
+        pageRange: 'all', // 1 page * 1000 = 1000 paise
+      },
+    ];
+
+    const form = new FormData();
+    form.append('machine_id', 'qwik-kiosk');
+    form.append('per_file_settings', JSON.stringify(perFileSettings));
+    form.append(
+      'files',
+      new Blob([new Uint8Array(pdf5)], { type: 'application/pdf' }),
+      'slides.pdf'
+    );
+    form.append(
+      'files',
+      new Blob([new Uint8Array(pngDummy)], { type: 'image/png' }),
+      'cover.png'
+    );
+
+    const uploadRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    expect(uploadRes.status).toBe(201);
+    const job = (await uploadRes.json()) as {
+      job_id: string;
+      total_pages: number;
+      amount_paise: number;
+      files: Array<{
+        selected_pages: number;
+        billable_sheets: number;
+        amount_paise: number;
+        settings: { duplex: string; orientation: string; pagesPerSheet: number; pageRange: string };
+      }>;
+    };
+
+    expect(job.total_pages).toBe(5);
+    expect(job.amount_paise).toBe(1800);
+    expect(job.files[0].selected_pages).toBe(4);
+    expect(job.files[0].billable_sheets).toBe(4);
+    expect(job.files[0].amount_paise).toBe(800);
+    expect(job.files[0].settings.duplex).toBe('2-sided');
+    expect(job.files[0].settings.pagesPerSheet).toBe(2);
+
+    const dispatchPromise = nextMessage<{
+      type: string;
+      files: Array<{ settings: { duplex: string; orientation: string; pagesPerSheet: number; pageRange: string } }>;
+    }>(ws);
+
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job.job_id}/pay`, {
+      method: 'POST',
+    });
+    expect(payRes.status).toBe(200);
+
+    const dispatch = await dispatchPromise;
+    expect(dispatch.type).toBe('job_dispatch');
+    expect(dispatch.files[0].settings.orientation).toBe('landscape');
+    expect(dispatch.files[0].settings.pageRange).toBe('1-3,5');
+    expect(dispatch.files[1].settings.duplex).toBe('1-sided');
+
+    // Send job_status_update -> printing, then printed
+    ws.send(
+      JSON.stringify({
+        type: 'job_status_update',
+        job_id: job.job_id,
+        status: 'printing',
+      })
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    let statusRes = await fetch(`${baseUrl}/api/jobs/${job.job_id}/status`);
+    let statusBody = (await statusRes.json()) as { status: string };
+    expect(statusBody.status).toBe('printing');
+
+    ws.send(
+      JSON.stringify({
+        type: 'job_status_update',
+        job_id: job.job_id,
+        status: 'printed',
+      })
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    statusRes = await fetch(`${baseUrl}/api/jobs/${job.job_id}/status`);
+    statusBody = (await statusRes.json()) as { status: string };
+    expect(statusBody.status).toBe('printed');
+
+    ws.close();
+  });
 });

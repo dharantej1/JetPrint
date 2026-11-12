@@ -4,13 +4,22 @@ import path from 'node:path';
 import express, { type Request, type Response, type Router } from 'express';
 import multer from 'multer';
 import type { RelayConfig } from '../config.js';
-import { detectPageCount, isSupportedFile } from '../pdf.js';
+import {
+  countSelectedPages,
+  detectPageCount,
+  isSupportedFile,
+  normalizeFileSettings,
+} from '../pdf.js';
 import {
   createPaymentOrder,
   verifyRazorpayWebhookSignature,
 } from '../razorpay.js';
 import type { RelayStore } from '../store.js';
-import type { JobFileRecord, PrintJobRecord } from '../types.js';
+import type {
+  FilePrintSettings,
+  JobFileRecord,
+  PrintJobRecord,
+} from '../types.js';
 import type { KioskWsHub } from '../ws.js';
 
 export interface RawBodyRequest extends Request {
@@ -116,21 +125,53 @@ export function createApiRouter(
           req.body?.color === 'true' ||
           req.body?.color === '1';
 
+        let perFileSettingsRaw: Array<Partial<FilePrintSettings>> = [];
+        if (typeof req.body?.per_file_settings === 'string' && req.body.per_file_settings.trim()) {
+          try {
+            const parsed = JSON.parse(req.body.per_file_settings);
+            if (Array.isArray(parsed)) {
+              perFileSettingsRaw = parsed as Array<Partial<FilePrintSettings>>;
+            }
+          } catch {
+            res.status(400).json({ error: 'Invalid per_file_settings JSON' });
+            return;
+          }
+        } else if (Array.isArray(req.body?.per_file_settings)) {
+          perFileSettingsRaw = req.body.per_file_settings as Array<Partial<FilePrintSettings>>;
+        }
+
         const jobId = `job_${crypto.randomBytes(6).toString('hex')}`;
         const jobDir = path.join(config.uploadDir, jobId);
         await fs.mkdir(jobDir, { recursive: true });
 
         const fileRecords: JobFileRecord[] = [];
         let pagesPerCopy = 0;
+        let totalPages = 0;
+        let amountPaise = 0;
 
-        for (const f of uploadedFiles) {
+        for (let i = 0; i < uploadedFiles.length; i++) {
+          const f = uploadedFiles[i];
           const fileId = `file_${crypto.randomBytes(4).toString('hex')}`;
           const safeName = path.basename(f.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
           const storagePath = path.join(jobDir, `${fileId}_${safeName}`);
           await fs.writeFile(storagePath, f.buffer);
 
           const pageCount = await detectPageCount(f.buffer, f.mimetype, f.originalname);
-          pagesPerCopy += pageCount;
+          const settings = normalizeFileSettings(perFileSettingsRaw[i], {
+            copies,
+            color,
+          });
+          const selectedPages = countSelectedPages(settings.pageRange, pageCount);
+          const sheetsPerCopy = Math.ceil(selectedPages / settings.pagesPerSheet);
+          const billableSheets = sheetsPerCopy * settings.copies;
+          const fileRate = settings.color
+            ? kiosk.pricing.colorPerPagePaise
+            : kiosk.pricing.bwPerPagePaise;
+          const fileAmountPaise = billableSheets * fileRate;
+
+          pagesPerCopy += sheetsPerCopy;
+          totalPages += billableSheets;
+          amountPaise += fileAmountPaise;
 
           fileRecords.push({
             fileId,
@@ -138,16 +179,14 @@ export function createApiRouter(
             mimeType: f.mimetype || 'application/octet-stream',
             sizeBytes: f.size,
             pageCount,
+            selectedPages,
+            billableSheets,
+            amountPaise: fileAmountPaise,
+            settings,
             storagePath,
             downloadPath: `/api/jobs/${jobId}/files/${fileId}`,
           });
         }
-
-        const totalPages = pagesPerCopy * copies;
-        const pricePerPage = color
-          ? kiosk.pricing.colorPerPagePaise
-          : kiosk.pricing.bwPerPagePaise;
-        const amountPaise = totalPages * pricePerPage;
 
         const order = await createPaymentOrder(config, {
           amountPaise,
@@ -188,6 +227,10 @@ export function createApiRouter(
             mime_type: f.mimeType,
             size_bytes: f.sizeBytes,
             page_count: f.pageCount,
+            selected_pages: f.selectedPages,
+            billable_sheets: f.billableSheets,
+            amount_paise: f.amountPaise,
+            settings: f.settings,
           })),
           dev_mode: order.devMode,
           razorpay_key_id: order.keyId ?? null,
@@ -205,12 +248,19 @@ export function createApiRouter(
       res.status(404).json({ error: 'Job not found' });
       return;
     }
+    const hasOtp =
+      job.status === 'paid' ||
+      job.status === 'dispatched' ||
+      job.status === 'printing' ||
+      job.status === 'printed' ||
+      job.status === 'failed';
     res.json({
       job_id: job.jobId,
       machine_id: job.machineId,
       status: job.status,
+      error: job.statusError,
       amount_paise: job.amountPaise,
-      otp: job.status === 'paid' || job.status === 'dispatched' ? job.otp : undefined,
+      otp: hasOtp ? job.otp : undefined,
     });
   });
 

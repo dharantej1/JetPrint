@@ -173,6 +173,7 @@ pub fn verify_otp_and_print(
 
     let cfg = state.db.get_config()?;
     state.db.update_job_status(&job.id, JobStatus::Printing)?;
+    state.relay.send_job_status(&job.id, "printing", None);
 
     if let Err(err) = print_job_files(
         cfg.default_printer.as_deref(),
@@ -181,10 +182,12 @@ pub fn verify_otp_and_print(
         job.color,
     ) {
         let _ = state.db.update_job_status(&job.id, JobStatus::Failed);
+        state.relay.send_job_status(&job.id, "failed", Some(&err));
         return Err(err);
     }
 
     state.db.update_job_status(&job.id, JobStatus::Printed)?;
+    state.relay.send_job_status(&job.id, "printed", None);
     let updated_job = state
         .db
         .get_job_by_id(&job.id)?

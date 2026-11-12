@@ -384,6 +384,7 @@ mod tests {
                 mime_type: "application/pdf".to_string(),
                 local_path: "/tmp/doc.pdf".to_string(),
                 pages: 3,
+                settings: None,
             }],
             copies: 2,
             color: true,

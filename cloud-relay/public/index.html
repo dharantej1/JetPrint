@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>JetPrint — Mobile Print &amp; Pay</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -16,10 +17,24 @@
           <p class="subtitle" id="shopName">Self-Service Cloud Print</p>
         </div>
       </div>
-      <div class="status-pill" id="kioskStatus">Checking…</div>
+      <div class="topbar-actions">
+        <span class="status-pill" id="kioskStatus">Checking…</span>
+        <button type="button" class="btn btn-sm btn-primary" id="topUploadBtn" hidden>+ Upload</button>
+      </div>
     </header>
 
     <main class="container">
+      <input
+        type="file"
+        id="fileInput"
+        accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"
+        multiple
+        hidden
+      />
+
+      <!-- Persistent Active Print OTP Cards -->
+      <section id="activeOtpContainer" class="active-otp-stack" hidden></section>
+
       <!-- Machine ID missing / lookup -->
       <section class="card" id="machineLookupCard" hidden>
         <h2>Connect to a Kiosk</h2>
@@ -36,65 +51,117 @@
       </div>
       <div class="banner banner-error" id="errorBanner" hidden></div>
 
-      <!-- Step 1: Upload & Settings -->
-      <section class="card" id="uploadSection" hidden>
-        <div class="pricing-bar" id="pricingBar">
-          <span>B&amp;W: <strong id="bwRate">—</strong>/pg</span>
-          <span>Color: <strong id="colorRate">—</strong>/pg</span>
+      <!-- Empty Upload State -->
+      <section class="card" id="emptyUploadCard" hidden>
+        <div class="pricing-bar">
+          <span>B&amp;W: <strong id="bwRateEmpty">—</strong>/pg</span>
+          <span>Color: <strong id="colorRateEmpty">—</strong>/pg</span>
         </div>
-
         <label class="dropzone" id="dropzone" for="fileInput">
-          <input
-            type="file"
-            id="fileInput"
-            accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"
-            multiple
-            hidden
-          />
           <div class="dropzone-icon">📄</div>
           <div class="dropzone-title">Tap to select PDF or Images</div>
           <div class="dropzone-sub">PDF, PNG, JPG, WEBP • Up to 10 files (25 MB each)</div>
         </label>
+      </section>
 
-        <ul class="file-list" id="fileList"></ul>
-
-        <div class="settings-grid">
-          <div class="setting-block">
-            <span class="setting-label">Color Mode</span>
-            <div class="segmented" role="group" aria-label="Color Mode">
-              <button type="button" class="seg-btn active" id="btnBw" data-color="false">
-                B&amp;W
-              </button>
-              <button type="button" class="seg-btn" id="btnColor" data-color="true">
-                Color
-              </button>
-            </div>
+      <!-- QwikPrint-style Document Carousel + Per-Document Settings -->
+      <section id="workspaceSection" hidden>
+        <div class="card carousel-card">
+          <div class="carousel-header">
+            <span class="doc-counter" id="docCounter">1 / 1</span>
+            <span class="doc-name" id="activeDocName">document.pdf</span>
+            <button type="button" class="icon-btn danger" id="deleteDocBtn" title="Remove document" aria-label="Remove document">🗑️</button>
           </div>
 
-          <div class="setting-block">
-            <span class="setting-label">Copies</span>
+          <div class="carousel-stage">
+            <button type="button" class="nav-arrow" id="prevDocBtn" aria-label="Previous document">‹</button>
+            <div class="thumb-frame" id="thumbFrame">
+              <div class="sheet-stage" id="thumbSheetStage"></div>
+              <span class="duplex-pill" id="thumbDuplexBadge" hidden></span>
+              <button type="button" class="preview-pill" id="openPreviewBtn">PREVIEW</button>
+            </div>
+            <button type="button" class="nav-arrow" id="nextDocBtn" aria-label="Next document">›</button>
+          </div>
+
+          <div class="doc-meta-row">
+            <span id="activeDocPages">1 page</span>
+            <span id="activeDocCost">₹2.00</span>
+          </div>
+        </div>
+
+        <!-- Per-Document Settings -->
+        <div class="card settings-card">
+          <div class="setting-row">
+            <span class="setting-label">Number of Copies</span>
             <div class="stepper">
               <button type="button" class="step-btn" id="copiesMinus" aria-label="Decrease copies">−</button>
               <span class="step-val" id="copiesVal">1</span>
               <button type="button" class="step-btn" id="copiesPlus" aria-label="Increase copies">+</button>
             </div>
           </div>
-        </div>
 
-        <div class="summary-box">
-          <div class="summary-row">
-            <span>Estimated Pages</span>
-            <span id="estPages">0</span>
+          <div class="setting-block">
+            <span class="setting-label">Color Mode</span>
+            <div class="segmented" role="group" aria-label="Color Mode">
+              <button type="button" class="seg-btn active" id="btnBw">
+                B&amp;W (<span id="bwRateBtn">—</span>)
+              </button>
+              <button type="button" class="seg-btn" id="btnColor">
+                Color (<span id="colorRateBtn">—</span>)
+              </button>
+            </div>
           </div>
-          <div class="summary-row total">
-            <span>Total</span>
-            <span id="estTotal">₹0.00</span>
+
+          <div class="settings-two-col">
+            <div class="setting-block">
+              <span class="setting-label">Sides (Duplex)</span>
+              <div class="segmented" role="group" aria-label="Duplex">
+                <button type="button" class="seg-btn active" id="btn1Sided">1-sided</button>
+                <button type="button" class="seg-btn" id="btn2Sided">2-sided</button>
+              </div>
+            </div>
+
+            <div class="setting-block">
+              <span class="setting-label">Orientation</span>
+              <div class="segmented" role="group" aria-label="Orientation">
+                <button type="button" class="seg-btn active" id="btnPortrait">Portrait</button>
+                <button type="button" class="seg-btn" id="btnLandscape">Landscape</button>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" class="more-toggle" id="moreToggleBtn">
+            <span>More Options</span>
+            <span id="moreToggleIcon">▾</span>
+          </button>
+
+          <div class="more-panel" id="morePanel" hidden>
+            <div class="setting-block">
+              <span class="setting-label">Pages Per Sheet</span>
+              <div class="segmented quad" id="ppsGroup">
+                <button type="button" class="seg-btn active" data-pps="1">1 on 1</button>
+                <button type="button" class="seg-btn" data-pps="2">2 on 1</button>
+                <button type="button" class="seg-btn" data-pps="4">4 on 1</button>
+                <button type="button" class="seg-btn" data-pps="6">6 on 1</button>
+              </div>
+            </div>
+
+            <div class="setting-block">
+              <span class="setting-label">Pages Selection</span>
+              <div class="segmented" role="group" aria-label="Page Range Mode">
+                <button type="button" class="seg-btn active" id="btnRangeAll">All Pages</button>
+                <button type="button" class="seg-btn" id="btnRangeCustom">Custom Range</button>
+              </div>
+              <input
+                type="text"
+                id="pageRangeInput"
+                class="range-input"
+                placeholder="e.g. 1-3, 5"
+                hidden
+              />
+            </div>
           </div>
         </div>
-
-        <button type="button" class="btn btn-primary btn-lg" id="payBtn" disabled>
-          Upload &amp; Pay
-        </button>
       </section>
 
       <!-- Step 2: Payment (Dev Mode or Waiting for Razorpay) -->
@@ -114,20 +181,40 @@
             Reopen UPI Checkout
           </button>
         </div>
-      </section>
-
-      <!-- Step 3: OTP Success -->
-      <section class="card otp-card" id="otpSection" hidden>
-        <div class="success-icon">✅</div>
-        <h2>Payment Successful!</h2>
-        <p class="muted">Enter this 6-digit OTP on the JetPrint Kiosk screen to print your documents:</p>
-        <div class="otp-display" id="otpDisplay">------</div>
-        <p class="muted small" id="jobIdLabel"></p>
-        <button type="button" class="btn btn-secondary" id="newPrintBtn">
-          Print Another Document
+        <button type="button" class="btn btn-secondary" id="cancelPayBtn">
+          Back to Documents
         </button>
       </section>
     </main>
+
+    <!-- Sticky Bottom Summary Bar -->
+    <footer class="sticky-footer" id="stickyFooter" hidden>
+      <div class="footer-info">
+        <div class="footer-pages"><span id="totalPagesLabel">0</span> billable pages</div>
+        <div class="footer-total" id="totalCostLabel">₹0.00</div>
+      </div>
+      <button type="button" class="btn btn-primary footer-pay-btn" id="payBtn" disabled>
+        Proceed To Pay
+      </button>
+    </footer>
+  </div>
+
+  <!-- Full-Screen Preview Modal -->
+  <div class="modal-backdrop" id="previewModal" hidden>
+    <div class="modal-shell">
+      <div class="modal-header">
+        <span class="modal-title" id="modalDocTitle">Preview</span>
+        <button type="button" class="icon-btn" id="closePreviewBtn" aria-label="Close preview">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sheet-stage modal-sheet-stage" id="modalSheetStage"></div>
+      </div>
+      <div class="modal-footer" id="modalPageNav" hidden>
+        <button type="button" class="btn btn-sm btn-secondary" id="modalPrevPage">‹ Prev</button>
+        <span id="modalPageLabel">Page 1 of 1</span>
+        <button type="button" class="btn btn-sm btn-secondary" id="modalNextPage">Next ›</button>
+      </div>
+    </div>
   </div>
 
   <script src="/app.js"></script>

@@ -175,6 +175,35 @@ export class KioskWsHub {
         break;
       }
 
+      case 'job_status_update': {
+        if (!ws.machineId) {
+          this.send(ws, {
+            type: 'error',
+            code: 'UNAUTHENTICATED',
+            message: 'Authenticate or register before updating job status',
+          });
+          return;
+        }
+        this.store.touchKiosk(ws.machineId);
+        const job = this.store.getJob(msg.job_id);
+        if (!job || job.machineId !== ws.machineId) {
+          this.send(ws, {
+            type: 'error',
+            code: 'JOB_NOT_FOUND',
+            message: 'Job not found for this machine',
+          });
+          return;
+        }
+        if (
+          msg.status === 'printing' ||
+          msg.status === 'printed' ||
+          msg.status === 'failed'
+        ) {
+          this.store.updateJobStatus(msg.job_id, msg.status, msg.error);
+        }
+        break;
+      }
+
       case 'ping': {
         if (ws.machineId) {
           this.store.touchKiosk(ws.machineId);
@@ -217,6 +246,7 @@ export class KioskWsHub {
         mime_type: f.mimeType,
         size_bytes: f.sizeBytes,
         page_count: f.pageCount,
+        settings: f.settings,
         download_url: base ? `${base}${f.downloadPath}` : f.downloadPath,
       })),
       created_at: new Date(job.createdAt).toISOString(),
