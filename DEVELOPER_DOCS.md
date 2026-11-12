@@ -172,15 +172,19 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `plugins.updater.endpoints`: `https://github.com/dharantej1/JetPrint/releases/latest/download/updater.json`
   - `plugins.updater.pubkey`: Must be replaced with your generated public key (see [`desktop-kiosk/src-tauri/UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
 - **Workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
-  - Triggers on pushing tags matching `v*` or via manual **Run workflow** (`workflow_dispatch`).
+  - Triggers **only** on pushing tags matching `v*` (`push: tags: ["v*"]`).
   - Matrix builds: `macos-latest` (`aarch64-apple-darwin`, `x86_64-apple-darwin`), `ubuntu-22.04` (installs `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`), and `windows-latest`.
-  - Uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
+  - Runs a `Sync version from git tag` step before building, then uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
 
 ### Automated Version Bump & Release
 
-- **GitHub Actions `workflow_dispatch`**:
-  - Run **Release JetPrint Desktop Kiosk** manually from GitHub Actions with `release_type` (`patch`, `minor`, `major`, or `custom`) and optional `custom_version` (`x.y.z`).
-  - The `prepare-release` job bumps `"version"` in `desktop-kiosk/src-tauri/tauri.conf.json`, `desktop-kiosk/package.json`, and `desktop-kiosk/src-tauri/Cargo.toml`, commits `chore: release v<ver>` to `main`, pushes the `v<ver>` tag, and triggers `publish-tauri` to build and publish the release + `updater.json`.
+- **Tag-Only Release Flow**:
+  - Create and push a semver tag:
+    ```bash
+    git tag vX.Y.Z
+    git push origin vX.Y.Z
+    ```
+  - The `Sync version from git tag` step in `publish-tauri` strips the leading `v`, validates `X.Y.Z`, and automatically stamps it into `desktop-kiosk/src-tauri/tauri.conf.json`, `desktop-kiosk/package.json`, and `desktop-kiosk/src-tauri/Cargo.toml` before `tauri-apps/tauri-action@v0` builds the installers and `updater.json`.
 
 ---
 
