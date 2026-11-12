@@ -1,0 +1,430 @@
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use chrono::Utc;
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::Notify;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+use crate::db::Database;
+use crate::models::{JobFile, JobStatus, PrintJob, RelayStatusEvent};
+
+pub const EVENT_JOB_RECEIVED: &str = "job-received";
+pub const EVENT_RELAY_STATUS: &str = "relay-status";
+
+#[derive(Clone)]
+pub struct RelayHandle {
+    pub connected: Arc<AtomicBool>,
+    pub reconnect_notify: Arc<Notify>,
+}
+
+impl RelayHandle {
+    pub fn new() -> Self {
+        Self {
+            connected: Arc::new(AtomicBool::new(false)),
+            reconnect_notify: Arc::new(Notify::new()),
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
+    }
+
+    pub fn trigger_reconnect(&self) {
+        self.reconnect_notify.notify_one();
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PricingPayload {
+    bw_per_page_paise: i64,
+    color_per_page_paise: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OutgoingWsMessage {
+    Auth {
+        machine_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        auth_token: Option<String>,
+        pricing: PricingPayload,
+    },
+    PricingUpdate {
+        #[serde(rename = "bwPerPagePaise")]
+        bw_per_page_paise: i64,
+        #[serde(rename = "colorPerPagePaise")]
+        color_per_page_paise: i64,
+    },
+    JobAck {
+        job_id: String,
+    },
+    Ping,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum IncomingWsMessage {
+    Registered {
+        #[allow(dead_code)]
+        machine_id: String,
+        auth_token: String,
+    },
+    AuthOk {
+        #[allow(dead_code)]
+        machine_id: String,
+        auth_token: String,
+    },
+    PricingAck {},
+    JobDispatch {
+        job_id: String,
+        otp: String,
+        print_settings: IncomingPrintSettings,
+        files: Vec<IncomingJobFile>,
+        created_at: Option<String>,
+    },
+    Pong,
+    Error {
+        #[allow(dead_code)]
+        code: Option<String>,
+        message: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct IncomingPrintSettings {
+    copies: u32,
+    color: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct IncomingJobFile {
+    file_id: String,
+    filename: String,
+    mime_type: String,
+    download_url: String,
+    #[serde(default = "default_pages")]
+    page_count: u32,
+}
+
+fn default_pages() -> u32 {
+    1
+}
+
+/// Converts an HTTP(S) relay base URL into a WebSocket URL (`/ws`).
+pub fn build_ws_url(relay_url: &str) -> String {
+    let trimmed = relay_url.trim().trim_end_matches('/');
+    let ws_base = if let Some(rest) = trimmed.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
+        trimmed.to_string()
+    } else {
+        format!("ws://{trimmed}")
+    };
+    format!("{ws_base}/ws")
+}
+
+/// Spawns the background WebSocket relay loop that stays connected and reconnects on demand.
+pub fn spawn_relay_loop(app: AppHandle, db: Arc<Database>, relay: RelayHandle) {
+    tauri::async_runtime::spawn(async move {
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        loop {
+            let config = match db.get_config() {
+                Ok(c) => c,
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
+            };
+
+            let ws_url = build_ws_url(&config.relay_url);
+            let mut active_token = config.auth_token.clone();
+
+            match connect_async(&ws_url).await {
+                Ok((ws_stream, _)) => {
+                    let (mut write, mut read) = ws_stream.split();
+
+                    let auth_msg = OutgoingWsMessage::Auth {
+                        machine_id: config.machine_id.clone(),
+                        auth_token: active_token.clone(),
+                        pricing: PricingPayload {
+                            bw_per_page_paise: config.bw_price_paise,
+                            color_per_page_paise: config.color_price_paise,
+                        },
+                    };
+                    if let Ok(json) = serde_json::to_string(&auth_msg) {
+                        if write.send(Message::Text(json.into())).await.is_err() {
+                            set_connected(&app, &relay, &config.machine_id, false, Some("Auth send failed"));
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                            continue;
+                        }
+                    }
+
+                    let pricing_msg = OutgoingWsMessage::PricingUpdate {
+                        bw_per_page_paise: config.bw_price_paise,
+                        color_per_page_paise: config.color_price_paise,
+                    };
+                    if let Ok(json) = serde_json::to_string(&pricing_msg) {
+                        let _ = write.send(Message::Text(json.into())).await;
+                    }
+
+                    set_connected(&app, &relay, &config.machine_id, true, None);
+
+                    let mut heartbeat = tokio::time::interval(Duration::from_secs(25));
+                    loop {
+                        tokio::select! {
+                            _ = relay.reconnect_notify.notified() => {
+                                let _ = write.close().await;
+                                break;
+                            }
+                            _ = heartbeat.tick() => {
+                                if let Ok(json) = serde_json::to_string(&OutgoingWsMessage::Ping) {
+                                    if write.send(Message::Text(json.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            incoming = read.next() => {
+                                match incoming {
+                                    Some(Ok(Message::Text(text))) => {
+                                        if let Some(ack_job_id) = handle_ws_text(
+                                            &app,
+                                            &db,
+                                            &http,
+                                            &config.relay_url,
+                                            &mut active_token,
+                                            &text,
+                                        ).await {
+                                            if let Ok(ack_json) = serde_json::to_string(&OutgoingWsMessage::JobAck { job_id: ack_job_id }) {
+                                                let _ = write.send(Message::Text(ack_json.into())).await;
+                                            }
+                                        }
+                                    }
+                                    Some(Ok(Message::Close(_))) | None => break,
+                                    Some(Err(_)) => break,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    set_connected(&app, &relay, &config.machine_id, false, Some("Disconnected from relay"));
+                }
+                Err(err) => {
+                    set_connected(
+                        &app,
+                        &relay,
+                        &config.machine_id,
+                        false,
+                        Some(&format!("Relay connection failed: {err}")),
+                    );
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                _ = relay.reconnect_notify.notified() => {}
+            }
+        }
+    });
+}
+
+fn set_connected(
+    app: &AppHandle,
+    relay: &RelayHandle,
+    machine_id: &str,
+    connected: bool,
+    message: Option<&str>,
+) {
+    relay.connected.store(connected, Ordering::Relaxed);
+    let _ = app.emit(
+        EVENT_RELAY_STATUS,
+        RelayStatusEvent {
+            connected,
+            machine_id: machine_id.to_string(),
+            message: message.map(str::to_string),
+        },
+    );
+}
+
+async fn handle_ws_text(
+    app: &AppHandle,
+    db: &Arc<Database>,
+    http: &reqwest::Client,
+    relay_url: &str,
+    active_token: &mut Option<String>,
+    text: &str,
+) -> Option<String> {
+    let Ok(msg) = serde_json::from_str::<IncomingWsMessage>(text) else {
+        return None;
+    };
+
+    match msg {
+        IncomingWsMessage::Registered { auth_token, .. }
+        | IncomingWsMessage::AuthOk { auth_token, .. } => {
+            *active_token = Some(auth_token.clone());
+            let _ = db.update_auth_token(Some(&auth_token));
+            None
+        }
+        IncomingWsMessage::JobDispatch {
+            job_id,
+            otp,
+            print_settings,
+            files,
+            created_at,
+        } => {
+            let job_dir = std::env::temp_dir().join("jetprint-jobs").join(&job_id);
+            if tokio::fs::create_dir_all(&job_dir).await.is_err() {
+                return None;
+            }
+
+            let mut downloaded_files = Vec::with_capacity(files.len());
+            for f in files {
+                let url = if f.download_url.starts_with("http://")
+                    || f.download_url.starts_with("https://")
+                {
+                    f.download_url.clone()
+                } else {
+                    format!(
+                        "{}/{}",
+                        relay_url.trim_end_matches('/'),
+                        f.download_url.trim_start_matches('/')
+                    )
+                };
+
+                let mut req = http.get(&url);
+                if let Some(tok) = active_token.as_deref() {
+                    req = req.bearer_auth(tok);
+                }
+
+                let Ok(resp) = req.send().await else {
+                    return None;
+                };
+                if !resp.status().is_success() {
+                    return None;
+                }
+                let Ok(bytes) = resp.bytes().await else {
+                    return None;
+                };
+
+                let safe_name = sanitize_filename(&f.filename);
+                let dest: PathBuf = job_dir.join(format!("{}_{}", f.file_id, safe_name));
+                if tokio::fs::write(&dest, &bytes).await.is_err() {
+                    return None;
+                }
+
+                downloaded_files.push(JobFile {
+                    file_id: f.file_id,
+                    filename: f.filename,
+                    mime_type: f.mime_type,
+                    local_path: dest.to_string_lossy().to_string(),
+                    pages: f.page_count,
+                });
+            }
+
+            let job = PrintJob {
+                id: job_id.clone(),
+                otp,
+                files: downloaded_files,
+                copies: print_settings.copies.max(1),
+                color: print_settings.color,
+                status: JobStatus::Pending,
+                created_at: created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
+                printed_at: None,
+            };
+
+            if db.insert_job(&job).is_ok() {
+                let _ = app.emit(EVENT_JOB_RECEIVED, &job);
+                return Some(job_id);
+            }
+            None
+        }
+        IncomingWsMessage::Error { message, .. } => {
+            eprintln!("[JetPrint WS] Relay error: {message}");
+            None
+        }
+        IncomingWsMessage::PricingAck {} | IncomingWsMessage::Pong => None,
+    }
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "file.bin".to_string()
+    } else {
+        cleaned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_ws_url_from_http_and_https() {
+        assert_eq!(build_ws_url("http://localhost:3001"), "ws://localhost:3001/ws");
+        assert_eq!(
+            build_ws_url("https://relay.jetprint.app/"),
+            "wss://relay.jetprint.app/ws"
+        );
+    }
+
+    #[test]
+    fn parses_cloud_relay_job_dispatch_schema() {
+        let json = r#"{
+            "type": "job_dispatch",
+            "job_id": "job-123",
+            "otp": "654321",
+            "amount_paise": 1200,
+            "print_settings": { "copies": 2, "color": true },
+            "files": [{
+                "file_id": "f-1",
+                "filename": "notes.pdf",
+                "mime_type": "application/pdf",
+                "size_bytes": 1024,
+                "page_count": 4,
+                "download_url": "/api/jobs/job-123/files/f-1"
+            }],
+            "created_at": "2026-11-12T07:00:00Z"
+        }"#;
+
+        let parsed: IncomingWsMessage = serde_json::from_str(json).expect("valid job_dispatch");
+        match parsed {
+            IncomingWsMessage::JobDispatch {
+                job_id,
+                otp,
+                print_settings,
+                files,
+                ..
+            } => {
+                assert_eq!(job_id, "job-123");
+                assert_eq!(otp, "654321");
+                assert_eq!(print_settings.copies, 2);
+                assert!(print_settings.color);
+                assert_eq!(files.len(), 1);
+                assert_eq!(files[0].page_count, 4);
+            }
+            _ => panic!("expected JobDispatch"),
+        }
+    }
+}
