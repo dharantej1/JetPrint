@@ -197,7 +197,8 @@ export class KioskWsHub {
         if (
           msg.status === 'printing' ||
           msg.status === 'printed' ||
-          msg.status === 'failed'
+          msg.status === 'failed' ||
+          msg.status === 'cancelled'
         ) {
           this.store.updateJobStatus(msg.job_id, msg.status, msg.error);
         }

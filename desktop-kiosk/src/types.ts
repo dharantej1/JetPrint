@@ -1,5 +1,6 @@
 export type KioskMode = "self_service" | "owner";
-export type JobStatus = "pending" | "printing" | "printed" | "failed";
+export type JobStatus = "pending" | "printing" | "printed" | "failed" | "expired" | "cancelled";
+export type RelayStatus = "connecting" | "connected" | "error" | "disconnected";
 
 export interface KioskState {
   machineId: string;
@@ -11,6 +12,11 @@ export interface KioskState {
   kioskMode: KioskMode;
   setupComplete: boolean;
   relayConnected: boolean;
+  relayStatus: RelayStatus;
+  relayMessage: string | null;
+  existingDataPrompt: boolean;
+  existingJobCount: number;
+  storagePath: string;
 }
 
 export interface CompleteFirstRunResult {
@@ -60,6 +66,7 @@ export interface PrintResult {
 
 export interface RelayStatusEvent {
   connected: boolean;
+  status: RelayStatus;
   machineId: string;
   message: string | null;
 }

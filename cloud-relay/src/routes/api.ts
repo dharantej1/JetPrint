@@ -253,7 +253,8 @@ export function createApiRouter(
       job.status === 'dispatched' ||
       job.status === 'printing' ||
       job.status === 'printed' ||
-      job.status === 'failed';
+      job.status === 'failed' ||
+      job.status === 'cancelled';
     res.json({
       job_id: job.jobId,
       machine_id: job.machineId,
@@ -261,6 +262,12 @@ export function createApiRouter(
       error: job.statusError,
       amount_paise: job.amountPaise,
       otp: hasOtp ? job.otp : undefined,
+      files: job.files.map((f) => ({
+        file_id: f.fileId,
+        filename: f.originalName,
+        page_count: f.pageCount,
+        settings: f.settings,
+      })),
     });
   });
 

@@ -11,6 +11,8 @@ import {
   KeyRound,
   Printer,
   CheckCircle2,
+  FolderOpen,
+  FileText,
 } from "lucide-react";
 import type { KioskMode, KioskState, PrintJob, PrinterInfo } from "../types";
 import {
@@ -18,7 +20,11 @@ import {
   installUpdateAndRelaunch,
   listJobs,
   listPrinters,
+  openLogsWindow,
+  pickStorageFolder,
   resetPasswordWithPhrase,
+  resolveStoragePreviewPath,
+  setStoragePath,
   updateSettings,
   verifyOtpAndPrint,
   verifyOwnerPassword,
@@ -61,6 +67,9 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   );
   const [kioskMode, setKioskMode] = useState<KioskMode>(kioskState.kioskMode);
   const [relayUrl, setRelayUrl] = useState<string>(kioskState.relayUrl);
+  const [storageFolder, setStorageFolder] = useState<string>(
+    kioskState.storagePath || ""
+  );
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -139,13 +148,21 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
     setSaving(true);
     try {
-      const updated = await updateSettings({
+      let updated = await updateSettings({
         defaultPrinter: defaultPrinter || undefined,
         bwPricePaise: bwPaise,
         colorPricePaise: colorPaise,
         kioskMode,
         relayUrl: relayUrl.trim(),
       });
+      const trimmedStorage = storageFolder.trim();
+      if (
+        trimmedStorage &&
+        resolveStoragePreviewPath(trimmedStorage) !== kioskState.storagePath
+      ) {
+        updated = await setStoragePath(trimmedStorage);
+        setStorageFolder(updated.storagePath);
+      }
       onStateUpdated(updated);
       setSaveMessage("Settings saved.");
       if (relayUrl.trim() !== kioskState.relayUrl) {
@@ -404,6 +421,44 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                 </div>
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Storage Folder</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    style={{ flex: 1 }}
+                    value={storageFolder}
+                    onChange={(e) => setStorageFolder(e.target.value)}
+                    placeholder="Application data folder"
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() =>
+                      pickStorageFolder()
+                        .then((picked) => {
+                          if (picked) setStorageFolder(picked);
+                        })
+                        .catch(() => {})
+                    }
+                    title="Browse Storage Folder"
+                  >
+                    <FolderOpen size={15} />
+                    <span>Browse...</span>
+                  </button>
+                </div>
+                <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.4, wordBreak: "break-all" }}>
+                  Stores <code style={{ color: "#94a3b8" }}>jetprint.db</code>,{" "}
+                  <code style={{ color: "#94a3b8" }}>jobs/</code>, and{" "}
+                  <code style={{ color: "#94a3b8" }}>logs/</code> in{" "}
+                  <code style={{ color: "#c7d2fe" }}>
+                    {storageFolder.trim()
+                      ? resolveStoragePreviewPath(storageFolder)
+                      : "JetPrint KIOSK"}
+                  </code>
+                </span>
+              </div>
+
               {saveError && <p className="error-text">{saveError}</p>}
               {saveMessage && (
                 <p className="success-text" style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -415,10 +470,20 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                 <span style={{ fontSize: 12, color: "#64748b" }}>
                   Machine ID: <code style={{ color: "#94a3b8" }}>{kioskState.machineId}</code>
                 </span>
-                <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-                  <span>Save Settings</span>
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => openLogsWindow().catch(() => {})}
+                  >
+                    <FileText size={15} />
+                    <span>View Logs</span>
+                  </button>
+                  <button type="submit" className="btn-primary" disabled={saving}>
+                    {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+                    <span>Save Settings</span>
+                  </button>
+                </div>
               </div>
             </form>
 

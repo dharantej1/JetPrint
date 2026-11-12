@@ -1,11 +1,30 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use chrono::Utc;
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::models::{AppConfig, JobFile, JobStatus, KioskMode, PrintJob, UpdateSettingsInput};
+
+pub fn current_exe_fingerprint() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let exe_meta = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| {
+            let size = m.len();
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("{size}-{mtime}")
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    format!("{version}:{exe_meta}")
+}
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -57,7 +76,8 @@ impl Database {
                 color_price_paise INTEGER NOT NULL DEFAULT 1000,
                 default_printer TEXT,
                 kiosk_mode TEXT NOT NULL DEFAULT 'self_service' CHECK (kiosk_mode IN ('self_service', 'owner')),
-                setup_complete INTEGER NOT NULL DEFAULT 0
+                setup_complete INTEGER NOT NULL DEFAULT 0,
+                exe_fingerprint TEXT
             );
 
             CREATE TABLE IF NOT EXISTS print_jobs (
@@ -77,6 +97,19 @@ impl Database {
         )
         .map_err(|e| format!("Failed to initialize SQLite schema: {e}"))?;
 
+        let has_exe_fingerprint: bool = conn
+            .prepare("PRAGMA table_info(app_config)")
+            .and_then(|mut stmt| {
+                let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+                Ok(rows.filter_map(Result::ok).any(|name| name == "exe_fingerprint"))
+            })
+            .map_err(|e| format!("Failed to inspect app_config columns: {e}"))?;
+
+        if !has_exe_fingerprint {
+            conn.execute("ALTER TABLE app_config ADD COLUMN exe_fingerprint TEXT", [])
+                .map_err(|e| format!("Failed to migrate app_config.exe_fingerprint: {e}"))?;
+        }
+
         let existing: Option<String> = conn
             .query_row("SELECT machine_id FROM app_config WHERE id = 1", [], |row| {
                 row.get(0)
@@ -86,7 +119,7 @@ impl Database {
 
         if existing.is_none() {
             let machine_id = format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12]);
-            let default_relay = "http://localhost:3001";
+            let default_relay = "http://localhost:3000";
             conn.execute(
                 r#"
                 INSERT INTO app_config (
@@ -106,7 +139,8 @@ impl Database {
         conn.query_row(
             r#"
             SELECT machine_id, relay_url, auth_token, password_hash, recovery_phrase_hash,
-                   bw_price_paise, color_price_paise, default_printer, kiosk_mode, setup_complete
+                   bw_price_paise, color_price_paise, default_printer, kiosk_mode, setup_complete,
+                   exe_fingerprint
             FROM app_config WHERE id = 1
             "#,
             [],
@@ -124,6 +158,7 @@ impl Database {
                     default_printer: row.get(7)?,
                     kiosk_mode: KioskMode::from_str(&mode_str),
                     setup_complete: setup_int != 0,
+                    exe_fingerprint: row.get(10)?,
                 })
             },
         )
@@ -170,6 +205,95 @@ impl Database {
         )
         .map_err(|e| format!("Failed to update auth_token: {e}"))?;
         Ok(())
+    }
+
+    pub fn update_exe_fingerprint(&self, fingerprint: &str) -> Result<AppConfig, String> {
+        {
+            let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            conn.execute(
+                "UPDATE app_config SET exe_fingerprint = ?1 WHERE id = 1",
+                params![fingerprint],
+            )
+            .map_err(|e| format!("Failed to update exe_fingerprint: {e}"))?;
+        }
+        self.get_config()
+    }
+
+    pub fn count_jobs(&self) -> Result<usize, String> {
+        let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM print_jobs", [], |row| row.get(0))
+            .map_err(|e| format!("Failed to count print_jobs: {e}"))?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub fn checkpoint_wal(&self) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| format!("Failed to checkpoint WAL: {e}"))?;
+        Ok(())
+    }
+
+    pub fn find_expired_jobs(&self, cutoff_utc: DateTime<Utc>) -> Result<Vec<PrintJob>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT id, otp, files_json, copies, color, status, created_at, printed_at
+                FROM print_jobs
+                WHERE status IN ('pending', 'printing', 'failed')
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare find_expired_jobs: {e}"))?;
+
+        let rows = stmt
+            .query_map([], Self::row_to_job)
+            .map_err(|e| format!("Failed to query expired jobs: {e}"))?;
+
+        let mut expired = Vec::new();
+        for row in rows {
+            let job = row.map_err(|e| format!("Failed to decode job row: {e}"))?;
+            if let Ok(dt) = DateTime::parse_from_rfc3339(&job.created_at) {
+                if dt.with_timezone(&Utc) <= cutoff_utc {
+                    expired.push(job);
+                }
+            }
+        }
+        Ok(expired)
+    }
+
+    pub fn reset_installation_data(&self, fingerprint: &str) -> Result<AppConfig, String> {
+        let new_machine_id = format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12]);
+        {
+            let mut conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            let tx = conn
+                .transaction()
+                .map_err(|e| format!("Failed to start reset transaction: {e}"))?;
+            tx.execute("DELETE FROM print_jobs", [])
+                .map_err(|e| format!("Failed to clear print_jobs: {e}"))?;
+            tx.execute(
+                r#"
+                UPDATE app_config
+                SET machine_id = ?1,
+                    relay_url = 'http://localhost:3000',
+                    auth_token = NULL,
+                    password_hash = NULL,
+                    recovery_phrase_hash = NULL,
+                    bw_price_paise = 200,
+                    color_price_paise = 1000,
+                    default_printer = NULL,
+                    kiosk_mode = 'self_service',
+                    setup_complete = 0,
+                    exe_fingerprint = ?2
+                WHERE id = 1
+                "#,
+                params![new_machine_id, fingerprint],
+            )
+            .map_err(|e| format!("Failed to reset app_config: {e}"))?;
+            tx.commit()
+                .map_err(|e| format!("Failed to commit reset transaction: {e}"))?;
+        }
+        self.get_config()
     }
 
     pub fn update_settings(&self, input: &UpdateSettingsInput) -> Result<AppConfig, String> {
@@ -294,27 +418,68 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_jobs(&self, limit: usize) -> Result<Vec<PrintJob>, String> {
+    pub fn list_jobs(&self, limit: usize, date: Option<&str>) -> Result<Vec<PrintJob>, String> {
+        let target_date = match date.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(d) => Some((
+                d.to_string(),
+                NaiveDate::parse_from_str(d, "%Y-%m-%d")
+                    .map_err(|_| "Invalid date format, expected YYYY-MM-DD".to_string())?,
+            )),
+            None => None,
+        };
+
         let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT id, otp, files_json, copies, color, status, created_at, printed_at
-                FROM print_jobs
-                ORDER BY created_at DESC
-                LIMIT ?1
-                "#,
-            )
-            .map_err(|e| format!("Failed to prepare list_jobs: {e}"))?;
-
-        let rows = stmt
-            .query_map(params![limit as i64], Self::row_to_job)
-            .map_err(|e| format!("Failed to query jobs: {e}"))?;
-
         let mut jobs = Vec::new();
-        for row in rows {
-            jobs.push(row.map_err(|e| format!("Failed to decode job row: {e}"))?);
+
+        if let Some((date_str, parsed_date)) = target_date {
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT id, otp, files_json, copies, color, status, created_at, printed_at
+                    FROM print_jobs
+                    ORDER BY created_at DESC
+                    "#,
+                )
+                .map_err(|e| format!("Failed to prepare list_jobs: {e}"))?;
+
+            let rows = stmt
+                .query_map([], Self::row_to_job)
+                .map_err(|e| format!("Failed to query jobs: {e}"))?;
+
+            for row in rows {
+                let job = row.map_err(|e| format!("Failed to decode job row: {e}"))?;
+                let matches = match DateTime::parse_from_rfc3339(&job.created_at) {
+                    Ok(dt) => dt.with_timezone(&Local).date_naive() == parsed_date,
+                    Err(_) => job.created_at.starts_with(&date_str),
+                };
+                if matches {
+                    jobs.push(job);
+                    if jobs.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    r#"
+                    SELECT id, otp, files_json, copies, color, status, created_at, printed_at
+                    FROM print_jobs
+                    ORDER BY created_at DESC
+                    LIMIT ?1
+                    "#,
+                )
+                .map_err(|e| format!("Failed to prepare list_jobs: {e}"))?;
+
+            let rows = stmt
+                .query_map(params![limit as i64], Self::row_to_job)
+                .map_err(|e| format!("Failed to query jobs: {e}"))?;
+
+            for row in rows {
+                jobs.push(row.map_err(|e| format!("Failed to decode job row: {e}"))?);
+            }
         }
+
         Ok(jobs)
     }
 
@@ -405,10 +570,195 @@ mod tests {
 
         db.update_job_status("job-1", JobStatus::Printed)
             .expect("update_job_status");
-        let jobs = db.list_jobs(10).expect("list_jobs");
+        let jobs = db.list_jobs(10, None).expect("list_jobs");
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].status, JobStatus::Printed);
         assert!(jobs[0].printed_at.is_some());
+    }
+
+    #[test]
+    fn filters_jobs_by_local_date() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let today_local = Local::now();
+        let today_str = today_local.format("%Y-%m-%d").to_string();
+        let yesterday_local = today_local - chrono::Duration::days(1);
+        let yesterday_str = yesterday_local.format("%Y-%m-%d").to_string();
+
+        let make_job = |id: &str, otp: &str, created_at: String| PrintJob {
+            id: id.to_string(),
+            otp: otp.to_string(),
+            files: vec![],
+            copies: 1,
+            color: false,
+            status: JobStatus::Pending,
+            created_at,
+            printed_at: None,
+        };
+
+        db.insert_job(&make_job("job-today", "111111", today_local.to_rfc3339()))
+            .expect("insert today");
+        db.insert_job(&make_job(
+            "job-yesterday",
+            "222222",
+            yesterday_local.to_rfc3339(),
+        ))
+        .expect("insert yesterday");
+
+        let today_jobs = db
+            .list_jobs(50, Some(&today_str))
+            .expect("list today jobs");
+        assert_eq!(today_jobs.len(), 1);
+        assert_eq!(today_jobs[0].id, "job-today");
+
+        let yesterday_jobs = db
+            .list_jobs(50, Some(&yesterday_str))
+            .expect("list yesterday jobs");
+        assert_eq!(yesterday_jobs.len(), 1);
+        assert_eq!(yesterday_jobs[0].id, "job-yesterday");
+
+        let all_jobs = db.list_jobs(50, None).expect("list all jobs");
+        assert_eq!(all_jobs.len(), 2);
+
+        assert!(db.list_jobs(50, Some("not-a-date")).is_err());
+    }
+
+    #[test]
+    fn keeps_and_resets_installation_data() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let original_cfg = db
+            .save_first_run("pw_hash", "phrase_hash")
+            .expect("save_first_run");
+        db.update_auth_token(Some("tok-123"))
+            .expect("update_auth_token");
+        db.update_settings(&UpdateSettingsInput {
+            relay_url: Some("https://relay.example.com".to_string()),
+            bw_price_paise: Some(500),
+            color_price_paise: Some(2000),
+            default_printer: Some("Canon".to_string()),
+            kiosk_mode: Some(KioskMode::Owner),
+        })
+        .expect("update_settings");
+        db.insert_job(&PrintJob {
+            id: "job-old".to_string(),
+            otp: "123456".to_string(),
+            files: vec![],
+            copies: 1,
+            color: false,
+            status: JobStatus::Printed,
+            created_at: Utc::now().to_rfc3339(),
+            printed_at: Some(Utc::now().to_rfc3339()),
+        })
+        .expect("insert_job");
+        assert_eq!(db.count_jobs().expect("count_jobs"), 1);
+
+        let kept = db
+            .update_exe_fingerprint("0.1.0:100-200")
+            .expect("keep_existing_data");
+        assert_eq!(kept.machine_id, original_cfg.machine_id);
+        assert!(kept.setup_complete);
+        assert_eq!(kept.exe_fingerprint.as_deref(), Some("0.1.0:100-200"));
+        assert_eq!(db.count_jobs().expect("count_jobs after keep"), 1);
+
+        let reset = db
+            .reset_installation_data("0.1.0:300-400")
+            .expect("reset_installation_data");
+        assert_ne!(reset.machine_id, original_cfg.machine_id);
+        assert!(reset.machine_id.starts_with("jp-"));
+        assert_eq!(reset.relay_url, "http://localhost:3000");
+        assert_eq!(reset.auth_token, None);
+        assert_eq!(reset.password_hash, None);
+        assert_eq!(reset.recovery_phrase_hash, None);
+        assert_eq!(reset.bw_price_paise, 200);
+        assert_eq!(reset.color_price_paise, 1000);
+        assert_eq!(reset.default_printer, None);
+        assert_eq!(reset.kiosk_mode, KioskMode::SelfService);
+        assert!(!reset.setup_complete);
+        assert_eq!(reset.exe_fingerprint.as_deref(), Some("0.1.0:300-400"));
+        assert_eq!(db.count_jobs().expect("count_jobs after reset"), 0);
+    }
+
+    #[test]
+    fn deletes_completed_and_expired_job_files() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let jobs_dir = temp_dir.path().join("jobs");
+        std::fs::create_dir_all(&jobs_dir).expect("create jobs dir");
+
+        let db = Database::open_in_memory().expect("in-memory db");
+
+        let make_file = |job_id: &str, name: &str| {
+            let dir = jobs_dir.join(job_id);
+            std::fs::create_dir_all(&dir).expect("create job dir");
+            let path = dir.join(name);
+            std::fs::write(&path, b"pdf-bytes").expect("write file");
+            JobFile {
+                file_id: "f1".to_string(),
+                filename: name.to_string(),
+                mime_type: "application/pdf".to_string(),
+                local_path: path.to_string_lossy().to_string(),
+                pages: 1,
+                settings: None,
+            }
+        };
+
+        // 1. Immediate deletion helper test
+        let printed_job = PrintJob {
+            id: "job-printed".to_string(),
+            otp: "111111".to_string(),
+            files: vec![make_file("job-printed", "a.pdf")],
+            copies: 1,
+            color: false,
+            status: JobStatus::Printed,
+            created_at: Utc::now().to_rfc3339(),
+            printed_at: Some(Utc::now().to_rfc3339()),
+        };
+        db.insert_job(&printed_job).expect("insert printed");
+        crate::storage::delete_job_files(&printed_job, &jobs_dir);
+        assert!(!jobs_dir.join("job-printed").exists());
+        assert!(db.get_job_by_id("job-printed").expect("get").is_some());
+
+        // 2. 48-hour expiry cleanup test
+        let old_job = PrintJob {
+            id: "job-old-pending".to_string(),
+            otp: "222222".to_string(),
+            files: vec![make_file("job-old-pending", "old.pdf")],
+            copies: 1,
+            color: false,
+            status: JobStatus::Pending,
+            created_at: (Utc::now() - chrono::Duration::hours(49)).to_rfc3339(),
+            printed_at: None,
+        };
+        let fresh_job = PrintJob {
+            id: "job-fresh-pending".to_string(),
+            otp: "333333".to_string(),
+            files: vec![make_file("job-fresh-pending", "fresh.pdf")],
+            copies: 1,
+            color: false,
+            status: JobStatus::Pending,
+            created_at: (Utc::now() - chrono::Duration::hours(12)).to_rfc3339(),
+            printed_at: None,
+        };
+        db.insert_job(&old_job).expect("insert old");
+        db.insert_job(&fresh_job).expect("insert fresh");
+
+        let cleaned = crate::storage::cleanup_expired_job_files(&db, &jobs_dir, None, None)
+            .expect("cleanup_expired_job_files");
+        assert_eq!(cleaned, 1);
+        assert!(!jobs_dir.join("job-old-pending").exists());
+        assert!(jobs_dir.join("job-fresh-pending").exists());
+        assert_eq!(
+            db.get_job_by_id("job-old-pending")
+                .expect("get old")
+                .unwrap()
+                .status,
+            JobStatus::Cancelled
+        );
+        assert_eq!(
+            db.get_job_by_id("job-fresh-pending")
+                .expect("get fresh")
+                .unwrap()
+                .status,
+            JobStatus::Pending
+        );
     }
 }
 

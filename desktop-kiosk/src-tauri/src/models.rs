@@ -30,6 +30,8 @@ pub enum JobStatus {
     Printing,
     Printed,
     Failed,
+    Expired,
+    Cancelled,
 }
 
 impl JobStatus {
@@ -39,6 +41,8 @@ impl JobStatus {
             JobStatus::Printing => "printing",
             JobStatus::Printed => "printed",
             JobStatus::Failed => "failed",
+            JobStatus::Expired => "expired",
+            JobStatus::Cancelled => "cancelled",
         }
     }
 
@@ -47,6 +51,8 @@ impl JobStatus {
             "printing" => JobStatus::Printing,
             "printed" => JobStatus::Printed,
             "failed" => JobStatus::Failed,
+            "expired" => JobStatus::Expired,
+            "cancelled" => JobStatus::Cancelled,
             _ => JobStatus::Pending,
         }
     }
@@ -64,6 +70,16 @@ pub struct AppConfig {
     pub default_printer: Option<String>,
     pub kiosk_mode: KioskMode,
     pub setup_complete: bool,
+    pub exe_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayConnectionStatus {
+    Connecting,
+    Connected,
+    Error,
+    Disconnected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +94,11 @@ pub struct KioskState {
     pub kiosk_mode: KioskMode,
     pub setup_complete: bool,
     pub relay_connected: bool,
+    pub relay_status: RelayConnectionStatus,
+    pub relay_message: Option<String>,
+    pub existing_data_prompt: bool,
+    pub existing_job_count: usize,
+    pub storage_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +214,7 @@ pub struct PrintResult {
 #[serde(rename_all = "camelCase")]
 pub struct RelayStatusEvent {
     pub connected: bool,
+    pub status: RelayConnectionStatus,
     pub machine_id: String,
     pub message: Option<String>,
 }
