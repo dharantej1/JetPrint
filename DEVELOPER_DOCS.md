@@ -172,7 +172,12 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `plugins.updater.pubkey`: Replace with your generated public key (see [`UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
 - **Workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
   - Triggers only on `v*` tags.
-  - Matrix builds: `macos-latest` (`aarch64-apple-darwin`, `x86_64-apple-darwin`), `ubuntu-22.04` (installs `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`), `windows-latest`.
+  - Matrix builds:
+    - `macos-latest` (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
+    - `ubuntu-22.04` (x86_64 Linux `.deb` and `.AppImage`)
+    - `ubuntu-22.04-arm` (native ARM64 Linux `.deb` and `.AppImage` targeting Raspberry Pi 4/5 and ARM64 single-board computers)
+    - `windows-latest` (NSIS `.exe` and `.msi`)
+  - Installs required Linux dependencies on both Ubuntu runners (`libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`).
   - Runs `Sync version from git tag` before building, then uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
 
 ### Automated Version Bump & Release

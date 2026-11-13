@@ -20,6 +20,8 @@ jobs:
             args: "--target x86_64-apple-darwin"
           - platform: ubuntu-22.04
             args: ""
+          - platform: ubuntu-22.04-arm
+            args: ""
           - platform: windows-latest
             args: ""
 
@@ -46,7 +48,7 @@ jobs:
           workspaces: desktop-kiosk/src-tauri
 
       - name: Install Linux dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libcups2-dev

@@ -10,6 +10,7 @@
   - [macOS (Apple Silicon M1–M4 & Intel)](#macos-apple-silicon-m1m4--intel)
   - [Windows (10 / 11)](#windows-10--11)
   - [Linux (Ubuntu / Debian & AppImage)](#linux-ubuntu--debian--appimage)
+  - [Raspberry Pi (Raspberry Pi OS 64-bit & ARM64)](#raspberry-pi-raspberry-pi-os-64-bit--arm64)
 - [2. Reinstalling or Upgrading: "Start Fresh" vs "Keep Previous Data"](#2-reinstalling-or-upgrading-start-fresh-vs-keep-previous-data)
 - [3. First-Run Setup Wizard (3 Steps)](#3-first-run-setup-wizard-3-steps)
 - [4. Understanding the Connection Status Pill](#4-understanding-the-connection-status-pill)
@@ -62,6 +63,69 @@ Download the installer for your OS from the GitHub Releases page, connect your p
      *Requires `libwebkit2gtk-4.1-0` and `libcups2` on minimal systems (`sudo apt install libwebkit2gtk-4.1-0 libcups2`).*
 2. **Add your printer**: Use **System Settings → Printers** or the CUPS web interface at `http://localhost:631`.
 3. **Launch**: Open **JetPrint** from the app menu, complete the [First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps), and verify **Relay Online** in the header.
+
+### Raspberry Pi (Raspberry Pi OS 64-bit & ARM64)
+
+JetPrint runs directly on ARM64 single-board computers, turning a Raspberry Pi into a dedicated, low-power print kiosk.
+
+> **Recommended Hardware & OS**:
+> - **Raspberry Pi 4 Model B** (4 GB / 8 GB) or **Raspberry Pi 5**
+> - **Raspberry Pi OS Bookworm (64-bit)** with desktop environment
+
+#### 1. Install Runtime Dependencies & `.deb` Package
+1. Download the ARM64 `.deb` package (e.g. `JetPrint_*_arm64.deb` or `JetPrint_*_amd64.deb` depending on your architecture) from the GitHub Releases page onto your Pi.
+2. Open terminal and install the required runtime libraries:
+   ```bash
+   sudo apt update
+   sudo apt install -y libwebkit2gtk-4.1-0 libcups2 libappindicator3-1 librsvg2-2
+   ```
+3. Install the JetPrint Debian package:
+   ```bash
+   sudo apt install ./JetPrint_*_arm64.deb
+   ```
+   *(If installing with `sudo dpkg -i`, resolve any missing dependencies with `sudo apt --fix-broken install -y`.)*
+
+#### 2. Configure Your Printer in CUPS
+JetPrint connects to any printer recognized by the Linux CUPS print spooler:
+1. Open a web browser on the Pi and visit the CUPS administration page at **`http://localhost:631`** (or open Raspberry Pi OS desktop **Preferences → Print Settings**).
+2. Under **Administration → Printers**, click **Add Printer**, detect your USB or network printer, assign the manufacturer driver/PPD, and print a test page to verify.
+3. Set it as the default printer, or select it inside JetPrint Owner Settings later.
+
+#### 3. Configure Kiosk Mode Autostart (Boot Straight into Fullscreen JetPrint)
+To operate the Raspberry Pi as a dedicated appliance that launches JetPrint on boot without showing the desktop:
+
+- **Desktop Session Autostart (`.desktop` entry)**:
+  Create the user autostart folder and desktop launcher:
+  ```bash
+  mkdir -p ~/.config/autostart
+  nano ~/.config/autostart/jetprint.desktop
+  ```
+  Paste the following configuration and save (`Ctrl+O`, `Enter`, `Ctrl+X`):
+  ```ini
+  [Desktop Entry]
+  Type=Application
+  Name=JetPrint Kiosk
+  Exec=jetprint
+  X-GNOME-Autostart-enabled=true
+  Terminal=false
+  ```
+
+- **Wayland / Wayfire Kiosk Autostart (Raspberry Pi OS Bookworm default)**:
+  Raspberry Pi OS Bookworm uses the Wayfire Wayland compositor by default. You can append JetPrint to `~/.config/wayfire.ini`:
+  ```ini
+  [autostart]
+  jetprint = jetprint
+  screensaver = false
+  dpms = false
+  ```
+
+- **Disable Screen Sleep / Blanking**:
+  Prevent the kiosk display from sleeping during operating hours:
+  - Run `sudo raspi-config` → **Display Options** → **Screen Blanking** → select **No** (Disable).
+  - Or in the desktop menu, navigate to **Preferences → Raspberry Pi Configuration → Display** and turn off **Screen Blanking**.
+
+- **Launch & Wizard**:
+  Reboot (`sudo reboot`) or launch **JetPrint** from the application menu or terminal (`jetprint`). Complete the [First-Run Setup Wizard](#3-first-run-setup-wizard-3-steps), configure pricing and your printer, and verify that the status pill shows **Relay Online**.
 
 ---
 
