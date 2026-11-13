@@ -68,6 +68,9 @@ pub fn build_file_print_properties(
             }
             .to_string(),
         ),
+        ("fit-to-page", "true".to_string()),
+        ("fitplot", "true".to_string()),
+        ("print-scaling", "fit".to_string()),
     ];
 
     if pages_per_sheet > 1 {
@@ -155,6 +158,9 @@ mod tests {
         assert!(props.contains(&("ColorModel", "Color".to_string())));
         assert!(props.contains(&("sides", "two-sided-long-edge".to_string())));
         assert!(props.contains(&("orientation-requested", "4".to_string())));
+        assert!(props.contains(&("fit-to-page", "true".to_string())));
+        assert!(props.contains(&("fitplot", "true".to_string())));
+        assert!(props.contains(&("print-scaling", "fit".to_string())));
         assert!(props.contains(&("number-up", "4".to_string())));
         assert!(props.contains(&("page-ranges", "1-4,6".to_string())));
 
@@ -171,6 +177,9 @@ mod tests {
         assert!(fallback_props.contains(&("ColorModel", "Monochrome".to_string())));
         assert!(fallback_props.contains(&("sides", "one-sided".to_string())));
         assert!(fallback_props.contains(&("orientation-requested", "3".to_string())));
+        assert!(fallback_props.contains(&("fit-to-page", "true".to_string())));
+        assert!(fallback_props.contains(&("fitplot", "true".to_string())));
+        assert!(fallback_props.contains(&("print-scaling", "fit".to_string())));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "number-up"));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "page-ranges"));
     }
