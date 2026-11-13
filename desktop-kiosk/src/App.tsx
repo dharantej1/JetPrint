@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { Update } from "@tauri-apps/plugin-updater";
 import { Printer, Settings, Wifi, WifiOff, DownloadCloud } from "lucide-react";
 import type { KioskState, PrintJob, RelayStatus } from "./types";
 import {
+  type AppUpdate,
   cancelJob,
   checkForAppUpdate,
   getAppVersion,
@@ -75,7 +75,7 @@ const KioskApp: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentVersion, setCurrentVersion] = useState("");
-  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
   const [isUpToDate, setIsUpToDate] = useState(false);
   const inProgressCheckRef = useRef<Promise<UpdateCheckResult> | null>(null);

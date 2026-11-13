@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import type { Update } from "@tauri-apps/plugin-updater";
 import {
   X,
   Lock,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react";
 import type { KioskMode, KioskState, PrintJob, PrinterInfo } from "../types";
 import {
+  type AppUpdate,
   type UpdateCheckResult,
   connectRelay,
   installUpdateAndRelaunch,
@@ -40,7 +40,7 @@ import {
 interface OwnerSettingsModalProps {
   kioskState: KioskState;
   currentVersion: string;
-  availableUpdate: Update | null;
+  availableUpdate: AppUpdate | null;
   updateCheckError: string | null;
   isUpToDate?: boolean;
   isFullscreen?: boolean;
@@ -458,7 +458,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                 </p>
               )}
 
-              {checkError && <p className="error-text" style={{ margin: 0 }}>{checkError}</p>}
+              {!availableUpdate && checkError && <p className="error-text" style={{ margin: 0 }}>{checkError}</p>}
               {updateError && <p className="error-text" style={{ margin: 0 }}>{updateError}</p>}
             </div>
 

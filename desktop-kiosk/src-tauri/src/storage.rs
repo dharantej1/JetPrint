@@ -74,7 +74,26 @@ fn move_dir_contents(src: &Path, dst: &Path) {
     let _ = fs::remove_dir_all(src);
 }
 
+pub fn default_storage_dir() -> PathBuf {
+    if let Some(doc_dir) = dirs::document_dir() {
+        return doc_dir.join(STORAGE_SUBFOLDER_NAME);
+    }
+    if let Some(home) = dirs::home_dir() {
+        return home.join("Documents").join(STORAGE_SUBFOLDER_NAME);
+    }
+    dirs::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(STORAGE_SUBFOLDER_NAME)
+}
+
 pub fn load_configured_data_dir(app_data_dir: &Path) -> PathBuf {
+    load_configured_data_dir_with_fallback(app_data_dir, &default_storage_dir())
+}
+
+pub fn load_configured_data_dir_with_fallback(
+    app_data_dir: &Path,
+    default_dir: &Path,
+) -> PathBuf {
     let config_path = app_data_dir.join(STORAGE_CONFIG_FILE);
     if let Ok(raw) = fs::read_to_string(&config_path) {
         if let Ok(cfg) = serde_json::from_str::<StorageConfig>(&raw) {
@@ -82,6 +101,26 @@ pub fn load_configured_data_dir(app_data_dir: &Path) -> PathBuf {
             if !trimmed.is_empty() {
                 let raw_dir = PathBuf::from(trimmed);
                 let normalized = normalize_storage_dir(&raw_dir);
+
+                // If configuration points directly to app_data_dir, upgrade it to default target folder
+                if normalized == app_data_dir || normalized == normalize_storage_dir(app_data_dir) {
+                    let _ = fs::create_dir_all(default_dir);
+                    let _ = fs::create_dir_all(default_dir.join("jobs"));
+                    let _ = fs::create_dir_all(default_dir.join("logs"));
+                    for name in ["jetprint.db", "jetprint.db-wal", "jetprint.db-shm"] {
+                        move_file_if_missing(&app_data_dir.join(name), &default_dir.join(name));
+                        move_file_if_missing(&normalized.join(name), &default_dir.join(name));
+                    }
+                    move_dir_contents(&app_data_dir.join("jobs"), &default_dir.join("jobs"));
+                    move_dir_contents(&app_data_dir.join("logs"), &default_dir.join("logs"));
+                    if normalized != app_data_dir {
+                        move_dir_contents(&normalized.join("jobs"), &default_dir.join("jobs"));
+                        move_dir_contents(&normalized.join("logs"), &default_dir.join("logs"));
+                    }
+                    let _ = save_configured_data_dir(app_data_dir, default_dir);
+                    return default_dir.to_path_buf();
+                }
+
                 if normalized != raw_dir {
                     let _ = fs::create_dir_all(&normalized);
                     for name in ["jetprint.db", "jetprint.db-wal", "jetprint.db-shm"] {
@@ -95,7 +134,21 @@ pub fn load_configured_data_dir(app_data_dir: &Path) -> PathBuf {
             }
         }
     }
-    app_data_dir.to_path_buf()
+
+    // Default target folder for kiosk data
+    let _ = fs::create_dir_all(default_dir);
+    let _ = fs::create_dir_all(default_dir.join("jobs"));
+    let _ = fs::create_dir_all(default_dir.join("logs"));
+
+    // If legacy files exist in app_data_dir, migrate them to the default target folder
+    for name in ["jetprint.db", "jetprint.db-wal", "jetprint.db-shm"] {
+        move_file_if_missing(&app_data_dir.join(name), &default_dir.join(name));
+    }
+    move_dir_contents(&app_data_dir.join("jobs"), &default_dir.join("jobs"));
+    move_dir_contents(&app_data_dir.join("logs"), &default_dir.join("logs"));
+
+    let _ = save_configured_data_dir(app_data_dir, default_dir);
+    default_dir.to_path_buf()
 }
 
 pub fn save_configured_data_dir(app_data_dir: &Path, data_dir: &Path) -> Result<(), String> {
@@ -316,5 +369,30 @@ mod tests {
         let updated_cfg = fs::read_to_string(temp_app.path().join(STORAGE_CONFIG_FILE))
             .expect("read updated storage_config.json");
         assert!(updated_cfg.contains(STORAGE_SUBFOLDER_NAME));
+    }
+
+    #[test]
+    fn defaults_to_target_folder_and_migrates_app_data_dir() {
+        let temp_app = tempfile::tempdir().expect("app_data_dir");
+        let temp_target = tempfile::tempdir().expect("target_data_dir");
+        let app_dir = temp_app.path();
+        let target_dir = temp_target.path().join("JetPrint KIOSK");
+
+        fs::write(app_dir.join("jetprint.db"), b"app-db").expect("db");
+        fs::create_dir_all(app_dir.join("jobs/job-2")).expect("jobs dir");
+        fs::write(app_dir.join("jobs/job-2/test.pdf"), b"pdf").expect("file");
+        fs::create_dir_all(app_dir.join("logs")).expect("logs dir");
+        fs::write(app_dir.join("logs/jetprint.log"), b"test log\n").expect("log");
+
+        let resolved = load_configured_data_dir_with_fallback(app_dir, &target_dir);
+        assert_eq!(resolved, target_dir);
+
+        assert!(!app_dir.join("jetprint.db").exists());
+        assert!(!app_dir.join("jobs").exists());
+        assert!(!app_dir.join("logs").exists());
+
+        assert!(target_dir.join("jetprint.db").exists());
+        assert!(target_dir.join("jobs/job-2/test.pdf").exists());
+        assert!(target_dir.join("logs/jetprint.log").exists());
     }
 }

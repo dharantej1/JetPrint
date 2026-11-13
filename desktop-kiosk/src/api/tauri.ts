@@ -1,7 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import type {
   CompleteFirstRunResult,
@@ -121,8 +120,17 @@ export async function setFullscreen(fullscreen: boolean): Promise<void> {
   return invoke<void>("set_fullscreen", { fullscreen });
 }
 
+export interface AppUpdate {
+  version: string;
+  currentVersion: string;
+  latestVersion: string;
+  downloadUrl?: string | null;
+  body?: string | null;
+  date?: string | null;
+}
+
 export interface UpdateCheckResult {
-  update: Update | null;
+  update: AppUpdate | null;
   error: string | null;
 }
 
@@ -130,21 +138,32 @@ export async function getAppVersion(): Promise<string> {
   return getVersion();
 }
 
-export async function checkForAppUpdate(timeoutMs = 20000): Promise<UpdateCheckResult> {
+export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   try {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
-        () => reject(new Error("Unable to reach update server. Request timed out.")),
-        timeoutMs + 2000
-      );
-    });
+    const info = await invoke<{
+      currentVersion: string;
+      available: boolean;
+      latestVersion: string;
+      downloadUrl?: string | null;
+      body?: string | null;
+      date?: string | null;
+    }>("check_for_updates");
 
-    const update = await Promise.race([
-      check({ timeout: timeoutMs }),
-      timeoutPromise,
-    ]);
+    if (info.available) {
+      return {
+        update: {
+          version: info.latestVersion,
+          currentVersion: info.currentVersion,
+          latestVersion: info.latestVersion,
+          downloadUrl: info.downloadUrl,
+          body: info.body,
+          date: info.date,
+        },
+        error: null,
+      };
+    }
 
-    return { update, error: null };
+    return { update: null, error: null };
   } catch (err) {
     const raw =
       err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
@@ -169,9 +188,9 @@ export async function checkForAppUpdate(timeoutMs = 20000): Promise<UpdateCheckR
   }
 }
 
-export async function installUpdateAndRelaunch(update: Update): Promise<void> {
-  await update.downloadAndInstall();
-  await relaunch();
+export async function installUpdateAndRelaunch(_update?: AppUpdate): Promise<void> {
+  await invoke<void>("install_update");
+  await relaunch().catch(() => {});
 }
 
 export async function listenKioskEvents(handlers: {

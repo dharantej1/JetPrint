@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::logger::AppLogger;
 use crate::models::{
@@ -22,6 +25,7 @@ pub struct AppState {
     pub relay: RelayHandle,
     pub existing_data_prompt: AtomicBool,
     pub exe_fingerprint: String,
+    pub pending_update: Arc<Mutex<Option<Update>>>,
 }
 
 fn detect_lan_ipv4() -> Option<String> {
@@ -495,6 +499,216 @@ pub fn toggle_fullscreen(window: tauri::Window) -> Result<bool, String> {
 #[tauri::command]
 pub fn set_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
     window.set_fullscreen(fullscreen).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub current_version: String,
+    pub available: bool,
+    pub latest_version: String,
+    pub download_url: Option<String>,
+    pub body: Option<String>,
+    pub date: Option<String>,
+}
+
+fn build_resilient_updater(
+    app: &AppHandle,
+    current_version: &str,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    let mut builder = app.updater_builder();
+    builder = builder
+        .header("User-Agent", format!("JetPrint/{current_version}"))
+        .map_err(|e| e.to_string())?;
+    builder = builder.timeout(Duration::from_secs(15));
+    builder = builder.configure_client(|cb| {
+        cb.connect_timeout(Duration::from_millis(2500)).no_proxy()
+    });
+    builder
+        .build()
+        .map_err(|e| format!("Failed to build updater: {e}"))
+}
+
+#[tauri::command]
+pub async fn check_for_updates(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<UpdateCheckResult, String> {
+    let current_version = app.package_info().version.to_string();
+    state.logger.log(
+        "INFO",
+        &format!("Checking for updates (current version: v{current_version})..."),
+    );
+
+    // 1. Try resilient updater instance configured with connect_timeout and no_proxy
+    if let Ok(updater) = build_resilient_updater(&app, &current_version) {
+        match updater.check().await {
+            Ok(Some(update)) => {
+                let latest_version = update.version.clone();
+                let body = update.body.clone();
+                let date = update.date.map(|d| d.to_string());
+                let download_url = Some(update.download_url.to_string());
+                state.logger.log(
+                    "INFO",
+                    &format!("Update available: v{latest_version} (current: v{current_version})"),
+                );
+                if let Ok(mut pending) = state.pending_update.lock() {
+                    *pending = Some(update);
+                }
+                return Ok(UpdateCheckResult {
+                    current_version,
+                    available: true,
+                    latest_version,
+                    download_url,
+                    body,
+                    date,
+                });
+            }
+            Ok(None) => {
+                state.logger.log(
+                    "INFO",
+                    &format!("Application is up to date (v{current_version})"),
+                );
+                if let Ok(mut pending) = state.pending_update.lock() {
+                    *pending = None;
+                }
+                return Ok(UpdateCheckResult {
+                    current_version: current_version.clone(),
+                    available: false,
+                    latest_version: current_version,
+                    download_url: None,
+                    body: None,
+                    date: None,
+                });
+            }
+            Err(e) => {
+                state
+                    .logger
+                    .log("WARN", &format!("Updater check via manifest failed: {e}; falling back to GitHub API"));
+            }
+        }
+    }
+
+    // 2. Fallback: Query GitHub Releases API directly (instant 300ms, avoids Fastly CDN stalls)
+    let client = reqwest::Client::builder()
+        .user_agent(format!("JetPrint/{current_version}"))
+        .connect_timeout(Duration::from_millis(2500))
+        .timeout(Duration::from_secs(8))
+        .no_proxy()
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let api_result = client
+        .get("https://api.github.com/repos/dharantej1/JetPrint/releases/latest")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| {
+            state.logger.log("WARN", &format!("GitHub Releases API query failed: {e}"));
+            "Unable to reach update server. Please check your internet connection.".to_string()
+        })?;
+
+    if !api_result.status().is_success() {
+        return Err("Unable to reach update server. Please check your internet connection.".to_string());
+    }
+
+    let json: serde_json::Value = api_result
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse release metadata: {e}"))?;
+
+    let latest_version = json
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .map(|t| t.trim_start_matches('v').to_string())
+        .unwrap_or_else(|| current_version.clone());
+
+    let is_newer = match (
+        semver::Version::parse(latest_version.trim_start_matches('v')),
+        semver::Version::parse(current_version.trim_start_matches('v')),
+    ) {
+        (Ok(remote), Ok(local)) => remote > local,
+        _ => latest_version != current_version,
+    };
+
+    let body = json.get("body").and_then(|b| b.as_str()).map(str::to_string);
+    let date = json.get("published_at").and_then(|d| d.as_str()).map(str::to_string);
+
+    if !is_newer {
+        state.logger.log(
+            "INFO",
+            &format!("Application is up to date (current: v{current_version}, remote: v{latest_version})"),
+        );
+        if let Ok(mut pending) = state.pending_update.lock() {
+            *pending = None;
+        }
+        return Ok(UpdateCheckResult {
+            current_version: current_version.clone(),
+            available: false,
+            latest_version,
+            download_url: None,
+            body,
+            date,
+        });
+    }
+
+    state.logger.log(
+        "INFO",
+        &format!("Update available: v{latest_version} (current: v{current_version})"),
+    );
+
+    Ok(UpdateCheckResult {
+        current_version,
+        available: true,
+        latest_version,
+        download_url: None,
+        body,
+        date,
+    })
+}
+
+#[tauri::command]
+pub async fn install_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let update = {
+        let mut guard = state
+            .pending_update
+            .lock()
+            .map_err(|_| "Failed to lock update state".to_string())?;
+        guard.take()
+    };
+
+    let update = match update {
+        Some(u) => u,
+        None => {
+            let current_version = app.package_info().version.to_string();
+            let updater = build_resilient_updater(&app, &current_version)?;
+            updater
+                .check()
+                .await
+                .map_err(|e| format!("Failed to check for update: {e}"))?
+                .ok_or_else(|| "No update available to install".to_string())?
+        }
+    };
+
+    state.logger.log(
+        "INFO",
+        &format!("Downloading and installing JetPrint v{}...", update.version),
+    );
+
+    update
+        .download_and_install(|_downloaded, _total| {}, || {})
+        .await
+        .map_err(|e| format!("Failed to download and install update: {e}"))?;
+
+    state.logger.log(
+        "INFO",
+        "Update installed successfully. Restarting application...",
+    );
+
+    app.restart();
 }
 
 

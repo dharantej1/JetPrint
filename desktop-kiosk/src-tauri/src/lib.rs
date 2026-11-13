@@ -14,9 +14,9 @@ use std::time::Duration;
 use tauri::Manager;
 
 use commands::{
-    cancel_job, clear_logs, complete_first_run, connect_relay, get_kiosk_state, get_logs,
-    is_fullscreen, keep_existing_data, list_jobs, list_printers, open_logs_window,
-    pick_storage_folder, reset_installation_data, reset_machine_identity,
+    cancel_job, check_for_updates, clear_logs, complete_first_run, connect_relay, get_kiosk_state,
+    get_logs, install_update, is_fullscreen, keep_existing_data, list_jobs, list_printers,
+    open_logs_window, pick_storage_folder, reset_installation_data, reset_machine_identity,
     reset_password_with_phrase, set_fullscreen, set_storage_path, toggle_fullscreen,
     update_settings, verify_otp_and_print, verify_owner_password, AppState,
 };
@@ -98,6 +98,7 @@ pub fn run() {
                 relay: relay.clone(),
                 existing_data_prompt: AtomicBool::new(should_prompt),
                 exe_fingerprint,
+                pending_update: Arc::new(std::sync::Mutex::new(None)),
             });
 
             spawn_relay_loop(app.handle().clone(), storage, relay, logger);
@@ -125,6 +126,8 @@ pub fn run() {
             is_fullscreen,
             toggle_fullscreen,
             set_fullscreen,
+            check_for_updates,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running JetPrint Kiosk");
