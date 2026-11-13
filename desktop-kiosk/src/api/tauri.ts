@@ -130,34 +130,41 @@ export async function getAppVersion(): Promise<string> {
   return getVersion();
 }
 
-export async function checkForAppUpdate(timeoutMs = 25000): Promise<UpdateCheckResult> {
+export async function checkForAppUpdate(timeoutMs = 20000): Promise<UpdateCheckResult> {
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(
-        () => reject(new Error("Update server took too long to respond. Please check your network connection.")),
-        timeoutMs + 3000
+        () => reject(new Error("Unable to reach update server. Request timed out.")),
+        timeoutMs + 2000
       );
     });
 
     const update = await Promise.race([
-      check({
-        timeout: timeoutMs,
-        headers: {
-          "User-Agent": "JetPrint-Desktop-Kiosk",
-          "Accept": "application/json",
-        },
-      }),
+      check({ timeout: timeoutMs }),
       timeoutPromise,
     ]);
 
     return { update, error: null };
   } catch (err) {
-    const message =
+    const raw =
       err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
     console.warn("Updater check failed:", err);
+
+    let friendlyMessage = raw;
+    if (
+      raw.includes("error sending request") ||
+      raw.includes("dns error") ||
+      raw.includes("connection refused") ||
+      raw.includes("network") ||
+      raw.includes("timed out") ||
+      raw.includes("connect")
+    ) {
+      friendlyMessage = "Unable to reach update server. Please check your internet connection.";
+    }
+
     return {
       update: null,
-      error: message || "Failed to check for updates.",
+      error: friendlyMessage,
     };
   }
 }

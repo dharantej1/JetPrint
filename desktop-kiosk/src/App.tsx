@@ -99,7 +99,7 @@ const KioskApp: React.FC = () => {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const runUpdateCheck = useCallback(async () => {
+  const runUpdateCheck = useCallback(async (isBackground = false) => {
     if (inProgressCheckRef.current) {
       return inProgressCheckRef.current;
     }
@@ -114,7 +114,9 @@ const KioskApp: React.FC = () => {
         } else if (result.error) {
           setAvailableUpdate(null);
           setIsUpToDate(false);
-          setUpdateCheckError(result.error);
+          if (!isBackground) {
+            setUpdateCheckError(result.error);
+          }
         } else {
           setAvailableUpdate(null);
           setIsUpToDate(true);
@@ -201,14 +203,19 @@ const KioskApp: React.FC = () => {
 
     loadState();
     getAppVersion().then(setCurrentVersion).catch(() => {});
-    runUpdateCheck();
+
+    // Delay background update check slightly on startup so OS network/DNS is ready
+    const startupTimer = window.setTimeout(() => {
+      runUpdateCheck(true);
+    }, 3500);
 
     const updateTimer = window.setInterval(() => {
-      runUpdateCheck();
+      runUpdateCheck(true);
     }, 4 * 60 * 60 * 1000);
 
     return () => {
       active = false;
+      window.clearTimeout(startupTimer);
       window.clearInterval(updateTimer);
       unlisteners.forEach((fn) => fn());
     };
@@ -538,7 +545,7 @@ const KioskApp: React.FC = () => {
           isUpToDate={isUpToDate}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
-          onCheckForUpdates={runUpdateCheck}
+          onCheckForUpdates={() => runUpdateCheck(false)}
           onClose={() => setSettingsOpen(false)}
           onStateUpdated={(next) => {
             setKioskState(next);
