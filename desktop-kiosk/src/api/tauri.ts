@@ -109,6 +109,18 @@ export async function openLogsWindow(): Promise<void> {
   return invoke<void>("open_logs_window");
 }
 
+export async function isFullscreen(): Promise<boolean> {
+  return invoke<boolean>("is_fullscreen");
+}
+
+export async function toggleFullscreen(): Promise<boolean> {
+  return invoke<boolean>("toggle_fullscreen");
+}
+
+export async function setFullscreen(fullscreen: boolean): Promise<void> {
+  return invoke<void>("set_fullscreen", { fullscreen });
+}
+
 export interface UpdateCheckResult {
   update: Update | null;
   error: string | null;

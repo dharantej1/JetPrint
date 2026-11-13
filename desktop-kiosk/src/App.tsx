@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { Printer, Settings, Wifi, WifiOff, DownloadCloud } from "lucide-react";
+import { Printer, Settings, Wifi, WifiOff, DownloadCloud, Maximize, Minimize } from "lucide-react";
 import type { KioskState, PrintJob, RelayStatus } from "./types";
 import {
   cancelJob,
   checkForAppUpdate,
   getAppVersion,
   getKioskState,
+  isFullscreen as checkIsFullscreen,
   listJobs,
   listenKioskEvents,
   resetMachineIdentity,
+  setFullscreen,
+  toggleFullscreen,
   verifyOtpAndPrint,
 } from "./api/tauri";
 import { QrPanel } from "./components/QrPanel";
@@ -69,9 +72,29 @@ const KioskApp: React.FC = () => {
 
   // Owner modal & updater state
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentVersion, setCurrentVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    try {
+      const next = await toggleFullscreen();
+      setIsFullscreen(next);
+    } catch (err) {
+      console.error("Failed to toggle fullscreen:", err);
+    }
+  }, []);
+
+  // Check initial fullscreen state and keep in sync with window resize
+  useEffect(() => {
+    checkIsFullscreen().then(setIsFullscreen).catch(() => {});
+    const onResize = () => {
+      checkIsFullscreen().then(setIsFullscreen).catch(() => {});
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const runUpdateCheck = useCallback(async () => {
     const result = await checkForAppUpdate();
@@ -177,6 +200,31 @@ const KioskApp: React.FC = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [kioskState.setupComplete]);
+
+  // F11 and Escape key listeners for fullscreen toggle/exit
+  useEffect(() => {
+    const onKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === "F11") {
+        e.preventDefault();
+        try {
+          const next = await toggleFullscreen();
+          setIsFullscreen(next);
+        } catch (err) {
+          console.error("Failed to toggle fullscreen via F11:", err);
+        }
+      } else if (e.key === "Escape" && isFullscreen) {
+        e.preventDefault();
+        try {
+          await setFullscreen(false);
+          setIsFullscreen(false);
+        } catch (err) {
+          console.error("Failed to exit fullscreen via Escape:", err);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullscreen]);
 
   const handleCornerTap = () => {
     tapCountRef.current += 1;
@@ -335,6 +383,16 @@ const KioskApp: React.FC = () => {
 
           <button
             type="button"
+            className="fullscreen-trigger-btn"
+            onClick={handleToggleFullscreen}
+            title={isFullscreen ? "Exit Fullscreen (F11)" : "Enter Fullscreen (F11)"}
+            aria-label={isFullscreen ? "Exit Fullscreen (F11)" : "Enter Fullscreen (F11)"}
+          >
+            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+          </button>
+
+          <button
+            type="button"
             className="settings-trigger-btn"
             onClick={() => setSettingsOpen(true)}
             title="Owner Settings (Ctrl+Shift+S)"
@@ -460,6 +518,8 @@ const KioskApp: React.FC = () => {
           currentVersion={currentVersion}
           availableUpdate={availableUpdate}
           updateCheckError={updateCheckError}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
           onCheckForUpdates={runUpdateCheck}
           onClose={() => setSettingsOpen(false)}
           onStateUpdated={(next) => {

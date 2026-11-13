@@ -13,12 +13,16 @@ import {
   CheckCircle2,
   FolderOpen,
   FileText,
+  Maximize,
+  Minimize,
+  Monitor,
 } from "lucide-react";
 import type { KioskMode, KioskState, PrintJob, PrinterInfo } from "../types";
 import {
   type UpdateCheckResult,
   connectRelay,
   installUpdateAndRelaunch,
+  isFullscreen as checkIsFullscreen,
   listJobs,
   listPrinters,
   openLogsWindow,
@@ -27,6 +31,7 @@ import {
   resetPasswordWithPhrase,
   resolveStoragePreviewPath,
   setStoragePath,
+  toggleFullscreen,
   updateSettings,
   verifyOtpAndPrint,
   verifyOwnerPassword,
@@ -37,6 +42,8 @@ interface OwnerSettingsModalProps {
   currentVersion: string;
   availableUpdate: Update | null;
   updateCheckError: string | null;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   onCheckForUpdates: () => Promise<UpdateCheckResult>;
   onClose: () => void;
   onStateUpdated: (next: KioskState) => void;
@@ -47,12 +54,36 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   currentVersion,
   availableUpdate,
   updateCheckError,
+  isFullscreen: isFullscreenProp,
+  onToggleFullscreen,
   onCheckForUpdates,
   onClose,
   onStateUpdated,
 }) => {
   const [unlocked, setUnlocked] = useState(false);
   const [view, setView] = useState<"login" | "reset" | "settings">("login");
+  const [isFullscreenLocal, setIsFullscreenLocal] = useState(isFullscreenProp ?? false);
+
+  useEffect(() => {
+    if (isFullscreenProp !== undefined) {
+      setIsFullscreenLocal(isFullscreenProp);
+    } else {
+      checkIsFullscreen().then(setIsFullscreenLocal).catch(() => {});
+    }
+  }, [isFullscreenProp]);
+
+  const handleToggleFullscreen = async () => {
+    if (onToggleFullscreen) {
+      onToggleFullscreen();
+      return;
+    }
+    try {
+      const next = await toggleFullscreen();
+      setIsFullscreenLocal(next);
+    } catch (err) {
+      console.error("Failed to toggle fullscreen:", err);
+    }
+  };
 
   // Login / Reset state
   const [password, setPassword] = useState("");
@@ -407,6 +438,38 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
               {checkError && <p className="error-text" style={{ margin: 0 }}>{checkError}</p>}
               {updateError && <p className="error-text" style={{ margin: 0 }}>{updateError}</p>}
+            </div>
+
+            {/* Window & Display Section */}
+            <div className="display-card">
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span className="form-label" style={{ marginBottom: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Monitor size={15} /> Window &amp; Display
+                </span>
+                <span style={{ fontSize: 13, color: "#94a3b8" }}>
+                  {isFullscreenLocal
+                    ? "Currently running in Fullscreen mode"
+                    : "Currently running in Normal Windowed mode"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleToggleFullscreen}
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                {isFullscreenLocal ? (
+                  <>
+                    <Minimize size={15} />
+                    <span>Exit Fullscreen</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize size={15} />
+                    <span>Enter Fullscreen</span>
+                  </>
+                )}
+              </button>
             </div>
 
             <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: 16 }}>

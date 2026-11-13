@@ -15,8 +15,9 @@
         "title": "JetPrint Kiosk",
         "width": 1280,
         "height": 800,
-        "fullscreen": true,
-        "resizable": true
+        "fullscreen": false,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {

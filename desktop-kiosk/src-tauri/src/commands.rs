@@ -479,3 +479,22 @@ pub fn open_logs_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn is_fullscreen(window: tauri::Window) -> Result<bool, String> {
+    window.is_fullscreen().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_fullscreen(window: tauri::Window) -> Result<bool, String> {
+    let current = window.is_fullscreen().map_err(|e| e.to_string())?;
+    let target = !current;
+    window.set_fullscreen(target).map_err(|e| e.to_string())?;
+    Ok(target)
+}
+
+#[tauri::command]
+pub fn set_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
+    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())
+}
+
+
