@@ -84,7 +84,7 @@ jobs:
             console.log(`Synced version to ${ver}`);
           '
 
-      - name: Build and publish Tauri app + latest.json
+      - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,7 +97,9 @@ jobs:
           releaseBody: "See the assets to download and install this version."
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: false
           updaterJsonPreferNsis: true
+          retryAttempts: 3
           args: ${{ matrix.args }}
 
   consolidate-updater:
