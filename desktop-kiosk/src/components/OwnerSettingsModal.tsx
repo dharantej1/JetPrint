@@ -42,6 +42,7 @@ interface OwnerSettingsModalProps {
   currentVersion: string;
   availableUpdate: Update | null;
   updateCheckError: string | null;
+  isUpToDate?: boolean;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onCheckForUpdates: () => Promise<UpdateCheckResult>;
@@ -54,6 +55,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   currentVersion,
   availableUpdate,
   updateCheckError,
+  isUpToDate,
   isFullscreen: isFullscreenProp,
   onToggleFullscreen,
   onCheckForUpdates,
@@ -115,7 +117,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
   // Updater state
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [checkedUpToDate, setCheckedUpToDate] = useState(false);
+  const [checkedUpToDate, setCheckedUpToDate] = useState(isUpToDate ?? false);
   const [checkError, setCheckError] = useState<string | null>(updateCheckError);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState("");
@@ -123,6 +125,13 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   useEffect(() => {
     setCheckError(updateCheckError);
   }, [updateCheckError]);
+
+  useEffect(() => {
+    if (isUpToDate) {
+      setCheckedUpToDate(true);
+      setCheckError(null);
+    }
+  }, [isUpToDate]);
 
   // Recent jobs (shown in Owner Mode)
   const [jobs, setJobs] = useState<PrintJob[]>([]);
@@ -231,13 +240,19 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
       const result = await onCheckForUpdates();
       if (result.error) {
         setCheckError(result.error);
+        setCheckedUpToDate(false);
       } else if (!result.update) {
         setCheckedUpToDate(true);
+        setCheckError(null);
+      } else {
+        setCheckedUpToDate(false);
+        setCheckError(null);
       }
     } catch (err) {
       setCheckError(
         typeof err === "string" ? err : "Failed to check for updates."
       );
+      setCheckedUpToDate(false);
     } finally {
       setCheckingUpdates(false);
     }
@@ -439,7 +454,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
               {!availableUpdate && !checkingUpdates && checkedUpToDate && !checkError && (
                 <p className="success-text" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
-                  <CheckCircle2 size={15} /> Up to date
+                  <CheckCircle2 size={15} /> Up to date (v{currentVersion || "current"})
                 </p>
               )}
 

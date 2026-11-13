@@ -14,6 +14,7 @@ import {
   setFullscreen,
   toggleFullscreen,
   verifyOtpAndPrint,
+  type UpdateCheckResult,
 } from "./api/tauri";
 import { QrPanel } from "./components/QrPanel";
 import { OtpKeypad, type OtpFeedbackStatus } from "./components/OtpKeypad";
@@ -76,6 +77,8 @@ const KioskApp: React.FC = () => {
   const [currentVersion, setCurrentVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
   const [updateCheckError, setUpdateCheckError] = useState<string | null>(null);
+  const [isUpToDate, setIsUpToDate] = useState(false);
+  const inProgressCheckRef = useRef<Promise<UpdateCheckResult> | null>(null);
 
   const handleToggleFullscreen = useCallback(async () => {
     try {
@@ -97,10 +100,34 @@ const KioskApp: React.FC = () => {
   }, []);
 
   const runUpdateCheck = useCallback(async () => {
-    const result = await checkForAppUpdate();
-    setAvailableUpdate(result.update);
-    setUpdateCheckError(result.error);
-    return result;
+    if (inProgressCheckRef.current) {
+      return inProgressCheckRef.current;
+    }
+
+    const checkPromise = (async () => {
+      try {
+        const result = await checkForAppUpdate();
+        if (result.update) {
+          setAvailableUpdate(result.update);
+          setIsUpToDate(false);
+          setUpdateCheckError(null);
+        } else if (result.error) {
+          setAvailableUpdate(null);
+          setIsUpToDate(false);
+          setUpdateCheckError(result.error);
+        } else {
+          setAvailableUpdate(null);
+          setIsUpToDate(true);
+          setUpdateCheckError(null);
+        }
+        return result;
+      } finally {
+        inProgressCheckRef.current = null;
+      }
+    })();
+
+    inProgressCheckRef.current = checkPromise;
+    return checkPromise;
   }, []);
 
   // 5-tap corner trigger tracking
@@ -508,6 +535,7 @@ const KioskApp: React.FC = () => {
           currentVersion={currentVersion}
           availableUpdate={availableUpdate}
           updateCheckError={updateCheckError}
+          isUpToDate={isUpToDate}
           isFullscreen={isFullscreen}
           onToggleFullscreen={handleToggleFullscreen}
           onCheckForUpdates={runUpdateCheck}

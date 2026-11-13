@@ -130,12 +130,26 @@ export async function getAppVersion(): Promise<string> {
   return getVersion();
 }
 
-export async function checkForAppUpdate(timeoutMs = 15000): Promise<UpdateCheckResult> {
+export async function checkForAppUpdate(timeoutMs = 25000): Promise<UpdateCheckResult> {
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("Update check timed out after 15 seconds.")), timeoutMs);
+      setTimeout(
+        () => reject(new Error("Update server took too long to respond. Please check your network connection.")),
+        timeoutMs + 3000
+      );
     });
-    const update = await Promise.race([check(), timeoutPromise]);
+
+    const update = await Promise.race([
+      check({
+        timeout: timeoutMs,
+        headers: {
+          "User-Agent": "JetPrint-Desktop-Kiosk",
+          "Accept": "application/json",
+        },
+      }),
+      timeoutPromise,
+    ]);
+
     return { update, error: null };
   } catch (err) {
     const message =
