@@ -118,7 +118,13 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 ### Modules
 
-- **`src/lib.rs`**: Initializes `tauri_plugin_updater`, `tauri_plugin_process`, opens SQLite at `<app_data_dir>/jetprint.db`, registers `AppState`, spawns `ws_client::spawn_relay_loop`, and registers all 9 Tauri commands.
+- **`src/lib.rs`**: Initializes `tauri_plugin_updater`, `tauri_plugin_process`, and `tauri_plugin_dialog`. Sets up `SharedStorage` defaulting to `~/Documents/JetPrint KIOSK` (with auto-migration from legacy app data), background 48-hour expired job cleanup task, manages `AppState`, spawns `ws_client::spawn_relay_loop`, and registers all 23 Tauri commands.
+- **`src/storage.rs`**: Dedicated kiosk storage and file lifecycle management:
+  - Default directory `~/Documents/JetPrint KIOSK` (or OS Documents directory) housing `jetprint.db`, downloaded print files in `jobs/`, and rolling diagnostics in `logs/jetprint.log`.
+  - Automatic migration from legacy system app data directories on upgrade.
+  - Background task running hourly to delete printed or cancelled job files older than 48 hours.
+  - Custom storage folder selection with live disk usage calculation.
+- **`src/logger.rs`**: Rotating application file logger writing to `logs/jetprint.log` with support for frontend retrieval and clearing.
 - **`src/db.rs`**: SQLite persistence (`rusqlite`, WAL mode).
   - **`app_config`** (singleton row `id = 1`): `machine_id`, `relay_url`, `auth_token`, `password_hash`, `recovery_phrase_hash`, `bw_price_paise` (default `200`), `color_price_paise` (default `1000`), `default_printer`, `kiosk_mode` (`'self_service'` | `'owner'`), `setup_complete` (`0` | `1`).
   - **`print_jobs`**: `id` (PK), `otp` (indexed), `files_json`, `copies`, `color`, `status` (`pending` | `printing` | `printed` | `failed`), `created_at`, `printed_at`.
@@ -126,24 +132,38 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `generate_recovery_phrase()`: 12-word BIP39 mnemonic (`bip39` crate).
   - `normalize_phrase()` / `validate_phrase()`: Lowercases, trims whitespace, validates 12-word BIP39.
   - `hash_secret()` / `verify_secret()`: Argon2id PHC hashing/verification (`argon2` crate).
-- **`src/printer.rs`**: `list_system_printers()` / `print_job_files()` via the `printers` crate (`copies` and `ColorModel` raw properties).
+- **`src/printer.rs`**: `list_system_printers()` / `print_job_files()` via the `printers` crate (`copies` and `ColorModel` raw properties) with auto-fit page scaling.
 - **`src/ws_client.rs`**:
   - `build_ws_url()`: Converts `http(s)://` to `ws(s)://.../ws`.
-  - `spawn_relay_loop()`: Connects via `tokio-tungstenite`, sends `auth` (persisting returned `auth_token`), downloads `job_dispatch` files via `reqwest` (Bearer auth) into a temp dir, inserts job into SQLite, sends `job_ack`, emits `job-received` and `relay-status`.
+  - `spawn_relay_loop()`: Connects via `tokio-tungstenite`, sends `auth` (persisting returned `auth_token`), downloads `job_dispatch` files via `reqwest` (Bearer auth) into `storage.jobs_dir()`, inserts job into SQLite, sends `job_ack`, emits `job-received` and `relay-status`.
 
 ### Tauri Commands (`src/commands.rs`) & Events
 
-| Command | Arguments | Return Type |
-|---|---|---|
-| `get_kiosk_state` | — | `KioskState` |
-| `complete_first_run` | `password: string` | `CompleteFirstRunResult` (`{ recoveryPhrase, state }`) |
-| `verify_owner_password` | `password: string` | `boolean` |
-| `reset_password_with_phrase` | `phrase: string, newPassword: string` | `void` |
-| `update_settings` | `settings: UpdateSettingsInput` | `KioskState` |
-| `list_printers` | — | `PrinterInfo[]` |
-| `verify_otp_and_print` | `otp: string` | `PrintResult` (`{ job, message }`) |
-| `list_jobs` | `limit?: number` | `PrintJob[]` |
-| `connect_relay` | `relayUrl?: string` | `KioskState` |
+| Command | Category | Arguments | Return Type | Description |
+|---|---|---|---|---|
+| `get_kiosk_state` | State | — | `KioskState` | Returns active kiosk settings, connection status, and storage path. |
+| `complete_first_run` | Setup | `password: string` | `CompleteFirstRunResult` | Hashes owner password, creates BIP39 phrase, and finalizes setup. |
+| `verify_owner_password` | Auth | `password: string` | `boolean` | Verifies Argon2id password hash for Owner Settings. |
+| `reset_password_with_phrase` | Auth | `phrase: string, newPassword: string` | `void` | Validates BIP39 recovery phrase and updates owner password. |
+| `update_settings` | Settings | `settings: UpdateSettingsInput` | `KioskState` | Updates printer, pricing, kiosk mode, and reconnects relay. |
+| `reset_machine_identity` | Settings | — | `KioskState` | Clears machine ID and token to regenerate new identity. |
+| `keep_existing_data` | Storage | — | `KioskState` | Dismisses existing data prompt and continues with saved DB. |
+| `reset_installation_data` | Storage | — | `KioskState` | Deletes local database, clears credentials, and re-triggers setup. |
+| `pick_storage_folder` | Storage | — | `string \| null` | Native OS folder picker to choose custom storage directory. |
+| `set_storage_path` | Storage | `path: string` | `KioskState` | Moves database, jobs, and logs to selected storage folder. |
+| `get_logs` | Logs | `lines?: number` | `string[]` | Reads recent entries from `logs/jetprint.log`. |
+| `clear_logs` | Logs | — | `void` | Clears diagnostic log file contents. |
+| `open_logs_window` | Logs | — | `void` | Opens standalone Tauri window to monitor live logs. |
+| `list_printers` | Printer | — | `PrinterInfo[]` | Enumerates available OS printers (CUPS / spooler). |
+| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Validates OTP and dispatches job files to printer. |
+| `list_jobs` | Print | `limit?: number` | `PrintJob[]` | Queries job history from local SQLite database. |
+| `cancel_job` | Print | `jobId: string` | `void` | Marks pending job as failed/cancelled. |
+| `connect_relay` | Relay | `relayUrl?: string` | `KioskState` | Updates relay address and forces WebSocket reconnection. |
+| `is_fullscreen` | Window | — | `boolean` | Queries current window fullscreen state. |
+| `toggle_fullscreen` | Window | — | `boolean` | Toggles between windowed and fullscreen display. |
+| `set_fullscreen` | Window | `fullscreen: boolean` | `void` | Sets fullscreen mode explicitly. |
+| `check_for_updates` | Updater | — | `UpdateCheckResult` | Resilient dual-path update check (GitHub API + Fastly CDN fallback). |
+| `install_update` | Updater | — | `void` | Downloads, Minisign-verifies, installs update, and restarts kiosk. |
 
 **Emitted Events:**
 - `job-received` (`PrintJob` payload) — fired when a paid job is downloaded and saved to SQLite.
@@ -153,33 +173,51 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 ## 4. React / TypeScript Frontend (`desktop-kiosk/src/`)
 
-- **`src/api/tauri.ts`**: Typed wrappers around `invoke(...)`, `listen(...)` (`listenKioskEvents`), `check()` (`checkForAppUpdate`), and `downloadAndInstall()` + `relaunch()` (`installUpdateAndRelaunch`).
+- **`src/api/tauri.ts`**: Typed wrappers around all 23 Tauri commands, event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
 - **`src/types.ts`**: TypeScript interfaces matching `src-tauri/src/models.rs` (`camelCase`).
-- **`src/App.tsx`**: Loads `KioskState`, checks for updates on startup, subscribes to `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, and renders:
+- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), and renders:
   - `QrPanel.tsx`: QR code for `<relayUrl>/upload?machine_id=<machineId>` and pricing.
   - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode).
   - `OwnerModeQueue.tsx`: Live job queue with **Print** buttons (Owner mode).
   - `FirstRunWizard.tsx`: First-run password creation & BIP39 phrase confirmation.
-  - `OwnerSettingsModal.tsx`: Password login, BIP39 reset, updater banner, mode toggle, printer selector, pricing, relay URL.
+  - `OwnerSettingsModal.tsx`: Password login, BIP39 reset, updater check/install banner, mode toggle, printer selector, pricing, relay URL, Window & Display controls, custom storage location picker, and diagnostic logs trigger.
+  - `LogsWindow.tsx`: Dedicated live logs inspector.
 
 ---
 
 ## 5. GitHub Actions Release Pipeline & Auto-Updater
 
 - **Config ([`desktop-kiosk/src-tauri/tauri.conf.json`](desktop-kiosk/src-tauri/tauri.conf.json))**:
+  - `app.windows`: Windowed by default (`fullscreen: false`, `center: true`, `resizable: true`).
   - `bundle.createUpdaterArtifacts: true`
   - `plugins.updater.endpoints`: `https://github.com/dharantej1/JetPrint/releases/latest/download/latest.json`
-  - `plugins.updater.pubkey`: Replace with your generated public key (see [`UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
+  - `plugins.updater.pubkey`: Cryptographic Minisign public key (see [`UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
 - **Workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
   - Triggers only on `v*` tags.
-  - Matrix builds:
-    - `macos-latest` (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
+  - Matrix builds across 5 runner targets:
+    - `macos-latest` (`aarch64-apple-darwin` — Apple Silicon M1–M4)
+    - `macos-latest` (`x86_64-apple-darwin` — Intel Mac)
     - `ubuntu-22.04` (x86_64 Linux `.deb` and `.AppImage`)
-    - `ubuntu-22.04-arm` (native ARM64 Linux `.deb` and `.AppImage` targeting Raspberry Pi 4/5 and ARM64 single-board computers)
-    - `windows-latest` (NSIS `.exe` and `.msi`)
-  - Installs required Linux dependencies on both Ubuntu runners (`libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`).
-  - Runs `Sync version from git tag` before building, then uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
-  - **Automated `latest.json` Consolidation**: Runs after all matrix builds complete to merge all 15 platform targets (macOS, Windows, Linux x86_64, and Raspberry Pi ARM64 deb/AppImage/rpm) into a single unified `latest.json` manifest, eliminating parallel matrix upload race conditions.
+    - `ubuntu-22.04-arm` (native ARM64 Linux `.deb` and `.AppImage` for Raspberry Pi 4/5 & ARM64 SBCs)
+    - `windows-latest` (x86_64 NSIS `.exe` and `.msi`)
+  - Linux dependency installation: Installs `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev` on all Linux runners (`runner.os == 'Linux'`).
+  - Multi-Platform Matrix Updater Consolidation (`consolidate-updater` job):
+    - Solves the GitHub Actions matrix upload race condition where parallel builder jobs overwrite each other's updater manifest.
+    - Runs `.github/scripts/consolidate-latest-json.js` after all builder jobs complete.
+    - Inspects release assets and generates a single unified `latest.json` manifest mapping **15 platform targets**:
+      - `darwin-aarch64`, `darwin-aarch64-app`
+      - `darwin-x86_64`, `darwin-x86_64-app`
+      - `windows-x86_64`, `windows-x86_64-nsis`
+      - `windows-x86_64-msi`
+      - `linux-x86_64`, `linux-x86_64-appimage`
+      - `linux-x86_64-deb`
+      - `linux-x86_64-rpm`
+      - `linux-aarch64`, `linux-aarch64-appimage` (Raspberry Pi ARM64)
+      - `linux-aarch64-deb` (Raspberry Pi ARM64)
+      - `linux-aarch64-rpm` (Raspberry Pi ARM64)
+  - Resilient In-App Update Engine:
+    - `check_for_updates`: Uses dual-path resolution: attempts manifest check with a 2.5-second connect timeout and no-proxy configuration, falling back immediately to the direct GitHub Releases API (`api.github.com/repos/.../releases/latest`) to bypass CDN cold-start latencies.
+    - `install_update`: Downloads target binary, verifies Minisign signature, installs package, and cleanly relaunches JetPrint via `app.restart()`.
 
 ### Automated Version Bump & Release
 

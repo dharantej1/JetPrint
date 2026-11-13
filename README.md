@@ -20,13 +20,16 @@
    - Counts PDF pages (`pdf-lib`), calculates cost from synced pricing, creates Razorpay orders (Dev/Test fallback when keys are unset), verifies webhook signatures, generates a 6-digit OTP, and dispatches the job to the kiosk over WebSocket (`/ws`).
 2. **Phase 2 — Tauri v2 Desktop Kiosk Backend ([`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/))**:
    - Rust backend: Tauri v2, `rusqlite` (SQLite), `argon2` + `bip39` (password & recovery phrase), `printers` (OS printing), `tokio-tungstenite` (WebSocket), `reqwest` (file downloads).
-   - Persists config (`app_config`) and print jobs (`print_jobs`) locally; emits `job-received` and `relay-status` events to the frontend.
+   - Dedicated local storage in `~/Documents/JetPrint KIOSK` (or OS Documents directory) housing `jetprint.db`, downloaded `jobs/`, and `logs/jetprint.log` with automatic migration from legacy app data directories and 48-hour background file cleanup.
+   - Resilient native updater engine with dual-path resolution (GitHub Releases API fallback with connect timeout) and OS print spooling.
 3. **Phase 3 — Kiosk UI ([`desktop-kiosk/src/`](desktop-kiosk/src/))**:
-   - React 18 + TypeScript + Vite fullscreen kiosk interface.
-   - Components: `QrPanel`, `OtpKeypad` (Self-Service Mode), `OwnerModeQueue` (Owner Mode), `FirstRunWizard`, `OwnerSettingsModal`.
+   - React 18 + TypeScript + Vite kiosk interface.
+   - Launches in centered windowed mode by default; fullscreen toggle is restricted to password-protected Owner Settings (or F11/Escape).
+   - Components: `QrPanel`, `OtpKeypad` (Self-Service Mode), `OwnerModeQueue` (Owner Mode), `FirstRunWizard`, `OwnerSettingsModal` (pricing, printer, display mode, custom storage folder picker, and in-app updater), and `LogsWindow`.
 4. **Phase 4 — Auto-Updater & Release CI ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
-   - Uses `tauri-plugin-updater` and `tauri-plugin-process` with `createUpdaterArtifacts: true`.
-   - GitHub Actions builds signed macOS (`aarch64`, `x86_64`), Ubuntu 22.04, and Windows installers on `v*` tags and publishes `updater.json`.
+   - Multi-platform matrix CI building signed releases for macOS (`aarch64`, `x86_64`), Windows (`x86_64` NSIS & MSI), Linux x86_64 (`.deb`, `.AppImage`), and Raspberry Pi ARM64 (`linux-aarch64` `.deb`, `.AppImage`).
+   - Automated post-build consolidation step generates a single unified `latest.json` updater manifest across 15 platform targets.
+   - Seamless one-click in-app update check, download, minisign verification, and restart.
 
 ## Directory Structure
 
@@ -54,7 +57,7 @@ JetPrint/
 - **Tauri v2 OS dependencies**:
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
   - **Windows**: Microsoft C++ Build Tools and WebView2.
-  - **Linux (Ubuntu/Debian)**:
+  - **Linux (Ubuntu/Debian & Raspberry Pi OS 64-bit ARM64)**:
     ```bash
     sudo apt-get update
     sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libcups2-dev

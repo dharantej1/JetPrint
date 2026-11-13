@@ -11,11 +11,15 @@
   - [Windows (10 / 11)](#windows-10--11)
   - [Linux (Ubuntu / Debian & AppImage)](#linux-ubuntu--debian--appimage)
   - [Raspberry Pi (Raspberry Pi OS 64-bit & ARM64)](#raspberry-pi-raspberry-pi-os-64-bit--arm64)
-- [2. Reinstalling or Upgrading: "Start Fresh" vs "Keep Previous Data"](#2-reinstalling-or-upgrading-start-fresh-vs-keep-previous-data)
+- [2. Storage Location, Reinstalling & Upgrading](#2-storage-location-reinstalling--upgrading)
+  - [Storage Directory Structure](#storage-directory-structure)
+  - ["Keep Previous Data" vs "Start Fresh"](#keep-previous-data-vs-start-fresh)
 - [3. First-Run Setup Wizard (3 Steps)](#3-first-run-setup-wizard-3-steps)
 - [4. Understanding the Connection Status Pill](#4-understanding-the-connection-status-pill)
 - [5. Opening Owner Settings](#5-opening-owner-settings)
 - [6. Configuring Relay URL, Default Printer, and Per-Page Pricing](#6-configuring-relay-url-default-printer-and-per-page-pricing)
+  - [Window & Display: Windowed Mode and Fullscreen Toggle](#window--display-windowed-mode-and-fullscreen-toggle)
+  - [Storage Folder & System Diagnostic Logs](#storage-folder--system-diagnostic-logs)
 - [7. Switching Between Self-Service Mode and Owner Mode](#7-switching-between-self-service-mode-and-owner-mode)
   - [Filtering the Owner Mode Print Queue by Date](#filtering-the-owner-mode-print-queue-by-date)
 - [8. Resetting a Forgotten Password](#8-resetting-a-forgotten-password)
@@ -129,14 +133,25 @@ To operate the Raspberry Pi as a dedicated appliance that launches JetPrint on b
 
 ---
 
-## 2. Reinstalling or Upgrading: "Start Fresh" vs "Keep Previous Data"
+## 2. Storage Location, Reinstalling & Upgrading
 
-JetPrint stores its local database (`jetprint.db` — Machine ID, password, recovery phrase, settings, and job history) in your computer's app data folder, preserved across updates and reinstalls.
+### Storage Directory Structure
 
-When a new build detects existing data, an **Existing Data Detected** prompt appears showing your saved **Machine ID** and job count:
+JetPrint stores all local application data, print files, and diagnostics in a dedicated user-accessible folder:
+- **Default Location**: `~/Documents/JetPrint KIOSK` (or your operating system's standard Documents directory).
+- **Contents**:
+  - `jetprint.db` (and SQLite `-wal` / `-shm`): Local database storing Machine ID, password hash, recovery phrase hash, shop settings, pricing, and job history.
+  - `jobs/`: Temporary storage for downloaded customer print documents (PDFs and images). Job files are automatically purged after 48 hours to conserve disk space, while job records remain in the database.
+  - `logs/jetprint.log`: Rolling diagnostic log file capturing WebSocket connectivity, print dispatch events, and error traces.
 
-- **Keep Previous Data** *(recommended for normal upgrades)*: Keeps your Machine ID, password, recovery phrase, settings, and job history, and resumes immediately.
-- **Start Fresh (Remove Previous Data)** *(recommended when resetting a test machine or new shop)*: Permanently deletes job history, settings, and credentials; generates a new Machine ID; and launches the First-Run Setup Wizard. Requires confirmation (**Yes, Remove Data & Start Fresh**) — this cannot be undone.
+> **Automatic Migration**: When upgrading from an older version of JetPrint that stored files in system app data directories, JetPrint automatically detects and moves your database, existing job files, and logs into `~/Documents/JetPrint KIOSK` on first startup without data loss.
+
+### "Keep Previous Data" vs "Start Fresh"
+
+When a new build or reinstallation detects an existing database in your storage directory, an **Existing Data Detected** prompt appears showing your saved **Machine ID** and job count:
+
+- **Keep Previous Data** *(recommended for normal upgrades)*: Preserves your Machine ID, password, recovery phrase, settings, and job history, and resumes immediately.
+- **Start Fresh (Remove Previous Data)** *(recommended when resetting a test machine or setting up a new shop)*: Permanently deletes previous job history, settings, and credentials; generates a new Machine ID; and launches the First-Run Setup Wizard. Requires confirmation (**Yes, Remove Data & Start Fresh**) — this action cannot be undone.
 
 ---
 
@@ -195,6 +210,18 @@ Inside **Owner Settings**:
    - **For customers on cellular data**, this must be a public `https://` URL. For same-Wi-Fi testing, use your LAN IP (e.g., `http://192.168.1.50:3000`) instead of `localhost`.
 4. Click **Save Settings** and confirm the **Relay Online** pill in the header.
 
+### Window & Display: Windowed Mode and Fullscreen Toggle
+
+- JetPrint launches in a centered, resizable windowed mode by default, making setup and initial testing convenient.
+- **Securing Fullscreen for Kiosks**: To prevent walk-up customers from resizing, minimizing, or exiting the application on unattended kiosks, the **Fullscreen Toggle** button is restricted to the password-protected **Owner Settings** panel under **Window & Display**.
+- In Owner Settings, click **Enter Fullscreen** to expand JetPrint edge-to-edge across the screen.
+- To exit fullscreen, re-open Owner Settings and click **Exit Fullscreen**, or use the keyboard shortcuts **`Escape`** or **`F11`**.
+
+### Storage Folder & System Diagnostic Logs
+
+- **Storage Location**: Displays the active path (`~/Documents/JetPrint KIOSK`) and current disk usage. Click **Open Folder** to reveal the folder in Finder / File Explorer, or click **Browse / Change Folder** to move the database and job directory to a custom path or external drive.
+- **View System Logs**: Opens the dedicated Logs Window showing real-time event logs (relay pings, job dispatches, printer commands) with options to refresh, copy, or clear log history.
+
 ---
 
 ## 7. Switching Between Self-Service Mode and Owner Mode
@@ -231,13 +258,19 @@ The Print Queue header includes a date filter:
 
 ## 9. Installing App Updates
 
-JetPrint checks for updates on startup:
+JetPrint features a built-in native updater powered by Rust:
 
-1. If an update is available, an **Update vX.Y.Z** button appears in the header.
-2. Open **Owner Settings** and unlock with your password.
-3. An **"Update Available Version X.Y.Z"** banner appears at the top.
-4. Click **Install Update & Restart**. JetPrint downloads, verifies, installs, and restarts automatically.
-5. If prompted with **Existing Data Detected** after restart, choose **Keep Previous Data**.
+1. **Automatic Silent Check**:
+   - On startup, JetPrint performs a silent background update check without interrupting ongoing kiosk operations.
+   - Dual-path check: queries the GitHub Releases API directly with Fastly CDN fallback and a 2.5-second connect timeout to prevent network stalls.
+2. **Manual On-Demand Check**:
+   - Open **Owner Settings** and click **Check for Updates**.
+   - The current version is displayed alongside check status. If already up to date, it confirms with a green checkmark (`Up to date (vX.Y.Z)`).
+3. **One-Click In-App Update & Restart**:
+   - When a new version is available, an **Update vX.Y.Z** badge appears in the header and an update banner displays in Owner Settings showing the release notes.
+   - Click **Install Update & Restart**.
+   - JetPrint downloads the package, validates its cryptographic Minisign signature, installs the new version, and automatically restarts.
+   - All shop data, passwords, and print records in `~/Documents/JetPrint KIOSK` are preserved automatically.
 
 ---
 
@@ -249,4 +282,7 @@ JetPrint checks for updates on startup:
 | **Header shows `Connecting...` or `Relay Offline`** | Check your internet, confirm the Cloud Relay server is running, verify **Cloud Relay URL** in Owner Settings, and click **Save Settings**. |
 | **Printer not listed or fails to print** | Confirm the printer is on, connected, and added in OS settings (macOS Printers & Scanners / Windows Printers & scanners / Linux CUPS), then reselect it in **Owner Settings → Default Printer**. |
 | **Prompted with "Existing Data Detected" after reinstall** | Choose **Keep Previous Data** to keep your settings and history, or **Start Fresh** to wipe and re-run setup. |
+| **Exit Fullscreen Mode** | Press **`Escape`** or **`F11`**, or open **Owner Settings → Window & Display** and click **Exit Fullscreen**. |
+| **Cannot locate database or log files** | Open `~/Documents/JetPrint KIOSK` (or click **Open Folder** in Owner Settings) to access `jetprint.db`, `jobs/`, and `logs/jetprint.log`. |
+| **Update check times out or fails** | Verify internet connectivity. Open Owner Settings and click **Check for Updates** to retry via the resilient dual-path updater. |
 | **Forgot Owner Password** | Click **Forgot Password? Reset with 12-word Phrase** in the Owner Authentication modal and enter your recovery phrase. |
