@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { Printer, Settings, Wifi, WifiOff, DownloadCloud, Maximize, Minimize } from "lucide-react";
+import { Printer, Settings, Wifi, WifiOff, DownloadCloud } from "lucide-react";
 import type { KioskState, PrintJob, RelayStatus } from "./types";
 import {
   cancelJob,
@@ -380,16 +380,6 @@ const KioskApp: React.FC = () => {
             {isRelayOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span>{relayLabel}</span>
           </div>
-
-          <button
-            type="button"
-            className="fullscreen-trigger-btn"
-            onClick={handleToggleFullscreen}
-            title={isFullscreen ? "Exit Fullscreen (F11)" : "Enter Fullscreen (F11)"}
-            aria-label={isFullscreen ? "Exit Fullscreen (F11)" : "Enter Fullscreen (F11)"}
-          >
-            {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-          </button>
 
           <button
             type="button"
