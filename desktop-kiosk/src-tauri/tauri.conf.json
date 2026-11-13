@@ -39,7 +39,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3NjA0OThEMzA1QUU2RDcKUldUWDVsb3dqVWxnWjg5bmhtVlhGL25HajZjWFFHNHhsSnRzTk04VkdoYWoySWpnbE1hQW16M3YK",
       "endpoints": [
-        "https://github.com/dharantej1/JetPrint/releases/latest/download/updater.json"
+        "https://github.com/dharantej1/JetPrint/releases/latest/download/latest.json"
       ]
     }
   }

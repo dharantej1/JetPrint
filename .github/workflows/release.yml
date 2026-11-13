@@ -82,7 +82,7 @@ jobs:
             console.log(`Synced version to ${ver}`);
           '
 
-      - name: Build and publish Tauri app + updater.json
+      - name: Build and publish Tauri app + latest.json
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
