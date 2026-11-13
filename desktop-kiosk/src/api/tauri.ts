@@ -130,9 +130,12 @@ export async function getAppVersion(): Promise<string> {
   return getVersion();
 }
 
-export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
+export async function checkForAppUpdate(timeoutMs = 15000): Promise<UpdateCheckResult> {
   try {
-    const update = await check();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Update check timed out after 15 seconds.")), timeoutMs);
+    });
+    const update = await Promise.race([check(), timeoutPromise]);
     return { update, error: null };
   } catch (err) {
     const message =

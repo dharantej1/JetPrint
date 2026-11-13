@@ -168,7 +168,7 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 - **Config ([`desktop-kiosk/src-tauri/tauri.conf.json`](desktop-kiosk/src-tauri/tauri.conf.json))**:
   - `bundle.createUpdaterArtifacts: true`
-  - `plugins.updater.endpoints`: `https://github.com/dharantej1/JetPrint/releases/latest/download/updater.json`
+  - `plugins.updater.endpoints`: `https://github.com/dharantej1/JetPrint/releases/latest/download/latest.json`
   - `plugins.updater.pubkey`: Replace with your generated public key (see [`UPDATER_SETUP.md`](desktop-kiosk/src-tauri/UPDATER_SETUP.md)).
 - **Workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
   - Triggers only on `v*` tags.
@@ -179,15 +179,16 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
     - `windows-latest` (NSIS `.exe` and `.msi`)
   - Installs required Linux dependencies on both Ubuntu runners (`libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf`, `libcups2-dev`).
   - Runs `Sync version from git tag` before building, then uses `tauri-apps/tauri-action@v0` with `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (`updaterJsonPreferNsis: true`).
+  - **Automated `latest.json` Consolidation**: Runs after all matrix builds complete to merge all 15 platform targets (macOS, Windows, Linux x86_64, and Raspberry Pi ARM64 deb/AppImage/rpm) into a single unified `latest.json` manifest, eliminating parallel matrix upload race conditions.
 
 ### Automated Version Bump & Release
 
 **Tag-Only Release Flow** — create and push a semver tag:
 ```bash
 git tag vX.Y.Z
-git push origin vX.Y.Z
+git push origin main && git push origin vX.Y.Z
 ```
-The `Sync version from git tag` step strips the leading `v`, validates `X.Y.Z`, and stamps it into `tauri.conf.json`, `package.json`, and `Cargo.toml` before `tauri-action` builds the installers and `updater.json`.
+The `Sync version from git tag` step strips the leading `v`, validates `X.Y.Z`, and stamps it into `tauri.conf.json`, `package.json`, and `Cargo.toml`. `tauri-action` builds the platform installers, and `consolidate-updater` publishes the unified `latest.json`.
 
 ---
 

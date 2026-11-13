@@ -227,12 +227,19 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
     setCheckedUpToDate(false);
     setCheckError(null);
     setUpdateError("");
-    const result = await onCheckForUpdates();
-    setCheckingUpdates(false);
-    if (result.error) {
-      setCheckError(result.error);
-    } else if (!result.update) {
-      setCheckedUpToDate(true);
+    try {
+      const result = await onCheckForUpdates();
+      if (result.error) {
+        setCheckError(result.error);
+      } else if (!result.update) {
+        setCheckedUpToDate(true);
+      }
+    } catch (err) {
+      setCheckError(
+        typeof err === "string" ? err : "Failed to check for updates."
+      );
+    } finally {
+      setCheckingUpdates(false);
     }
   };
 
