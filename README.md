@@ -21,6 +21,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/sponsors/dharantej1" target="_blank" rel="noopener noreferrer">
+    <img alt="Sponsor on GitHub" src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white">
+  </a>
+  &nbsp;&nbsp;
   <a href="https://www.paypal.com/ncp/payment/6GYEW6LMM7XLQ" target="_blank" rel="noopener noreferrer">
     <img alt="Donate with PayPal" src="https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white">
   </a>
@@ -341,6 +345,10 @@ Detailed technical and operational manuals are available in the repository:
 If you find JetPrint helpful and want to support ongoing development, hardware testing (Raspberry Pi setups, printer spoolers), and maintenance, consider buying a coffee or donating via PayPal:
 
 <p align="center">
+  <a href="https://github.com/sponsors/dharantej1" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" />
+  </a>
+  &nbsp;&nbsp;
   <a href="https://www.paypal.com/ncp/payment/6GYEW6LMM7XLQ" target="_blank" rel="noopener noreferrer">
     <img src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" height="42" />
   </a>
@@ -355,7 +363,7 @@ If you find JetPrint helpful and want to support ongoing development, hardware t
 </p>
 
 <p align="center">
-  <sub>Direct PayPal: <a href="https://paypal.me/dharantej1" target="_blank" rel="noopener noreferrer"><b>paypal.me/dharantej1</b></a> · Buy Me a Coffee: <a href="https://buymeacoffee.com/pusthakalaw" target="_blank" rel="noopener noreferrer"><b>buymeacoffee.com/pusthakalaw</b></a></sub>
+  <sub>GitHub Sponsors: <a href="https://github.com/sponsors/dharantej1" target="_blank" rel="noopener noreferrer"><b>github.com/sponsors/dharantej1</b></a> · PayPal: <a href="https://paypal.me/dharantej1" target="_blank" rel="noopener noreferrer"><b>paypal.me/dharantej1</b></a> · Buy Me a Coffee: <a href="https://buymeacoffee.com/pusthakalaw" target="_blank" rel="noopener noreferrer"><b>buymeacoffee.com/pusthakalaw</b></a></sub>
 </p>
 
 ---
