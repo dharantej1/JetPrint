@@ -81,7 +81,10 @@ const KioskApp: React.FC = () => {
   const inProgressCheckRef = useRef<Promise<UpdateCheckResult> | null>(null);
 
   // Vertical/portrait single-view navigation state
-  const [isPortrait, setIsPortrait] = useState(false);
+  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth <= 900 || window.innerHeight > window.innerWidth;
+  });
   const [activeVerticalView, setActiveVerticalView] = useState<"qr" | "otp">("qr");
 
   const handleToggleFullscreen = useCallback(async () => {
