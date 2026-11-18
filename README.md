@@ -1,71 +1,274 @@
-# JetPrint
+<p align="center">
+  <img src="desktop-kiosk/src-tauri/icons/128x128.png" width="108" height="108" alt="JetPrint Kiosk Icon: modern instant print kiosk icon">
+</p>
 
-**JetPrint** is a self-service print kiosk system for print shops and campuses. Customers scan a QR code, upload PDF or image files from their phone, pay via Razorpay UPI, and enter a 6-digit OTP on the kiosk to print.
+<h1 align="center">JetPrint</h1>
 
-## Table of Contents
+<p align="center">
+  <b>The self-service print kiosk system; an open-source, modern touch kiosk and mobile cloud relay.</b><br>
+  Scan, upload from any mobile browser, pay via Razorpay UPI, and release prints via 6-digit OTP in seconds.<br>
+  macOS · Windows · Linux · Raspberry Pi ARM64 · Mobile Web
+</p>
 
-- [Architecture Overview (4 Phases)](#architecture-overview-4-phases)
-- [Directory Structure](#directory-structure)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-  - [1. Cloud Relay (`cloud-relay/`)](#1-cloud-relay-cloud-relay)
-  - [2. Desktop Kiosk (`desktop-kiosk/`)](#2-desktop-kiosk-desktop-kiosk)
-- [Documentation](#documentation)
+<p align="center">
+  <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-b70228?style=flat-square">
+  <img alt="Written in Rust" src="https://img.shields.io/badge/backend-Rust%20(Tauri%20v2)-8a011e?style=flat-square">
+  <img alt="Frontend: React & TypeScript" src="https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-3178c6?style=flat-square">
+  <img alt="Cloud Relay: Node.js" src="https://img.shields.io/badge/relay-Node.js%20%2B%20ws-339933?style=flat-square">
+  <img alt="Payments: Razorpay UPI" src="https://img.shields.io/badge/payments-Razorpay%20UPI-02042b?style=flat-square&logo=razorpay&logoColor=3395ff">
+  <img alt="Platforms: macOS, Windows, Linux, Raspberry Pi" src="https://img.shields.io/badge/runs%20on-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20Raspberry%20Pi-b70228?style=flat-square">
+  <img alt="Local-First Storage" src="https://img.shields.io/badge/storage-local%20SQLite-4b9fd5?style=flat-square">
+</p>
 
-## Architecture Overview (4 Phases)
+<p align="center">
+  <a href="#highlights">Highlights</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#scan-upload--pay-in-seconds">Mobile</a> ·
+  <a href="#kiosk-self-service--owner-modes">Kiosk</a> ·
+  <a href="#turn-a-35-raspberry-pi-into-a-print-appliance">Raspberry Pi</a> ·
+  <a href="#security-recovery--local-storage">Security</a> ·
+  <a href="#how-its-built">Architecture</a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="#downloads">Downloads</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
 
-1. **Phase 1 — Cloud Relay & Mobile Web UI ([`cloud-relay/`](cloud-relay/))**:
-   - Node.js + TypeScript + Express + `ws` server.
-   - Serves the mobile upload & UPI payment web app at `GET /upload?machine_id=<id>`.
-   - Counts PDF pages (`pdf-lib`), calculates cost from synced pricing, creates Razorpay orders (Dev/Test fallback when keys are unset), verifies webhook signatures, generates a 6-digit OTP, and dispatches the job to the kiosk over WebSocket (`/ws`).
-2. **Phase 2 — Tauri v2 Desktop Kiosk Backend ([`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/))**:
-   - Rust backend: Tauri v2, `rusqlite` (SQLite), `argon2` + `bip39` (password & recovery phrase), `printers` (OS printing), `tokio-tungstenite` (WebSocket), `reqwest` (file downloads).
-   - Dedicated local storage in `~/Documents/JetPrint KIOSK` (or OS Documents directory) housing `jetprint.db`, downloaded `jobs/`, and `logs/jetprint.log` with automatic migration from legacy app data directories and 48-hour background file cleanup.
-   - Resilient native updater engine with dual-path resolution (GitHub Releases API fallback with connect timeout) and OS print spooling.
-3. **Phase 3 — Kiosk UI ([`desktop-kiosk/src/`](desktop-kiosk/src/))**:
-   - React 18 + TypeScript + Vite kiosk interface.
-   - Launches in centered windowed mode by default; fullscreen toggle is restricted to password-protected Owner Settings (or F11/Escape).
-   - Components: `QrPanel`, `OtpKeypad` (Self-Service Mode), `OwnerModeQueue` (Owner Mode), `FirstRunWizard`, `OwnerSettingsModal` (pricing, printer, display mode, custom storage folder picker, and in-app updater), and `LogsWindow`.
-4. **Phase 4 — Auto-Updater & Release CI ([`.github/workflows/release.yml`](.github/workflows/release.yml))**:
-   - Multi-platform matrix CI building signed releases for macOS (`aarch64`, `x86_64`), Windows (`x86_64` NSIS & MSI), Linux x86_64 (`.deb`, `.AppImage`), and Raspberry Pi ARM64 (`linux-aarch64` `.deb`, `.AppImage`).
-   - Automated post-build consolidation step generates a single unified `latest.json` updater manifest across 15 platform targets.
-   - Seamless one-click in-app update check, download, minisign verification, and restart.
+---
 
-## Directory Structure
+> [!NOTE]
+> **JetPrint transforms any standard USB or network printer into an autonomous, self-service print station.**
+> Designed for copy centers, universities, libraries, and coworking spaces. Customers require **zero app downloads or accounts**, payments settle instantly through UPI, and print jobs remain stored locally on your kiosk hardware.
+
+---
+
+## Highlights
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Instant & Contactless
+Customers point their phone camera at the on-screen QR code, upload documents directly in Safari or Chrome, preview exact page counts and costs, and pay with any UPI app (GPay, PhonePe, Paytm). The instant 6-digit OTP releases their pages at the kiosk.
+
+</td>
+<td width="33%" valign="top">
+
+### Appliance-Grade Resilient
+Written in pure Rust on Tauri v2 with local SQLite, native CUPS and Windows spooler integration, and automated WebSocket reconnect loops. Runs 24/7 on hardware ranging from high-end PCs to a \$35 Raspberry Pi 4/5 with unattended boot-to-kiosk support.
+
+</td>
+<td width="33%" valign="top">
+
+### Private & Yours
+GNU AGPL v3 licensed with zero cloud lock-in. Print files download straight to your kiosk storage (`~/Documents/JetPrint KIOSK`) and are automatically deleted after 48 hours. Kiosk settings are protected by Argon2id passwords and a 12-word BIP-39 recovery seed phrase.
+
+</td>
+</tr>
+</table>
+
+---
+
+## How it works
+
+JetPrint bridges the physical printer, the kiosk screen, and the customer's phone through a lightweight, resilient event loop:
 
 ```text
-JetPrint/
-├── .github/workflows/release.yml       # Cross-platform Tauri release & updater.json CI
-├── cloud-relay/                        # Phase 1: Express + ws Cloud Relay & Mobile UI
-│   ├── public/                         # Mobile upload & payment frontend
-│   ├── src/                            # TypeScript server, routes, WS, Razorpay, PDF utils
-│   ├── tests/relay.test.ts             # Vitest integration tests
-│   └── .env.example                    # Cloud Relay environment template
-├── desktop-kiosk/                      # Phases 2–4: Tauri v2 Desktop Kiosk
-│   ├── src/                            # React + TypeScript kiosk UI
-│   └── src-tauri/                      # Rust backend, SQLite, security, printer, WS client
-│       ├── tauri.conf.json             # Tauri v2 & updater configuration
-│       └── UPDATER_SETUP.md            # Signing keypair & GitHub Secrets instructions
-├── OWNER_SETUP_GUIDE.md                # Non-technical shop-owner setup & operations guide
-└── DEVELOPER_DOCS.md                   # Technical architecture, API, DB, and CI reference
+  ┌─────────────────────────┐
+  │ Customer Mobile Browser │
+  └───────────┬─────────────┘
+              │  1. Scans on-screen QR code (GET /upload?machine_id=<id>)
+              │  2. Uploads PDFs or Images (page counts via pdf-lib)
+              │  3. Pays via Razorpay UPI (or simulated Dev Mode)
+              ▼
+  ┌─────────────────────────┐
+  │   Cloud Relay Server    │
+  └───────────┬─────────────┘
+              │  4. Verifies HMAC-SHA256 signature, generates 6-digit OTP
+              │  5. Dispatches job over secure WebSocket (/ws)
+              ▼
+  ┌─────────────────────────┐
+  │ Tauri v2 Desktop Kiosk  │  ◄── Downloads files to ~/Documents/JetPrint KIOSK/
+  └───────────┬─────────────┘  ◄── Inserts job + OTP into local SQLite (jetprint.db)
+              │
+              │  6. Customer types OTP on touch keypad (or Owner prints from queue)
+              ▼
+  ┌─────────────────────────┐
+  │  OS Print Spooler / CUPS│ ──► Physical Printer
+  └─────────────────────────┘
 ```
 
-## Prerequisites
+---
 
-- **Node.js 20+** and `npm` (for `cloud-relay/` and `desktop-kiosk/`).
-- **Rust & Cargo** (stable toolchain, for `desktop-kiosk/src-tauri/`).
-- **Tauri v2 OS dependencies**:
-  - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
-  - **Windows**: Microsoft C++ Build Tools and WebView2.
-  - **Linux (Ubuntu/Debian & Raspberry Pi OS 64-bit ARM64)**:
+## Scan, upload & pay in seconds
+
+Customers never need to download an application, join a local Wi-Fi network, or register an account.
+
+- **Zero App Footprint:** The mobile web app (`cloud-relay/public/`) opens in any modern smartphone browser immediately upon scanning the kiosk's dynamic QR code.
+- **Accurate Pre-flight Page Analysis:** Server-side PDF analysis using `pdf-lib` extracts exact page counts and orientation before charging, eliminating pricing surprises.
+- **Dynamic Per-Page Pricing:** Pricing syncs in real-time from the kiosk's local settings (B&W per-page, Color per-page, and custom shop branding).
+- **Direct UPI & Razorpay Checkout:** Integrates seamlessly with Razorpay UPI payment gateway; webhook endpoints verify transactions using HMAC-SHA256 signatures before generating print tickets.
+- **Built-in Dev Mode:** When Razorpay credentials are not configured, JetPrint automatically runs in sandbox simulation mode so you can test complete end-to-end printing flows for free.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### Seamless Mobile Experience
+1. **Camera scan**: Customer scans the dynamic machine QR code.
+2. **Document upload**: Drag & drop or select PDFs, PNGs, and JPEGs.
+3. **Print options**: Choose copies, Black & White, or Color.
+4. **Pay**: Tap to trigger phone UPI intent or scan payment QR.
+5. **Get OTP**: Instant display of the 6-digit release code.
+
+</td>
+<td width="50%" valign="top">
+
+```sh
+# Verify payment and status via the Cloud Relay API
+curl -s http://localhost:3000/api/machines/kiosk_01
+curl -s http://localhost:3000/api/jobs/job_9481/status
+
+# JSON Response:
+# {
+#   "status": "paid",
+#   "otp": "482910",
+#   "amount_paise": 400,
+#   "pages": 2
+# }
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+## Kiosk: Self-Service & Owner Modes
+
+JetPrint features a dual-mode interface designed for high-throughput public spaces and straightforward shop administration:
+
+<table>
+<tr>
+<td width="50%">
+
+### 1. Self-Service Mode
+- **High-Contrast QR Display:** Shows the real-time Cloud Relay connection state and machine ID.
+- **Touch-Friendly Keypad:** Large numeric keypad designed for responsive touchscreens and all-in-one POS displays.
+- **Audio & Visual Feedback:** Clear error messaging for expired or invalid OTP codes, with instant printing status spinners.
+
+</td>
+<td width="50%">
+
+### 2. Owner Mode (Password Protected)
+- **Live Print Queue:** View all incoming, paid, printing, and completed jobs with timestamps and revenue.
+- **Date Filtering:** Quick filter by date range to audit today's print volume and total income.
+- **Manual Overrides:** Reprint failed sheets or manually delete corrupted jobs with one click.
+- **In-App Logs:** Direct access to live diagnostic logs for immediate troubleshooting.
+
+</td>
+</tr>
+</table>
+
+### Display & Tamper Protection
+The kiosk launches in centered windowed mode by default and features a dedicated **Fullscreen Toggle** (or <kbd>F11</kbd> / <kbd>Esc</kbd>) locked behind the Owner Password. When deployed in public areas, customers cannot minimize, resize, or exit the kiosk interface without administrative credentials.
+
+---
+
+## Turn a \$35 Raspberry Pi into a print appliance
+
+JetPrint provides native ARM64 Linux builds (`linux-aarch64`), enabling you to deploy a fully autonomous print kiosk on low-cost single-board hardware like a **Raspberry Pi 4** or **Raspberry Pi 5**.
+
+```sh
+# 1. Install runtime dependencies & JetPrint on Raspberry Pi OS 64-bit
+sudo apt update
+sudo apt install -y libwebkit2gtk-4.1-0 libcups2 libappindicator3-1 librsvg2-2
+sudo apt install ./JetPrint_*_arm64.deb
+
+# 2. Add your printer in CUPS (http://localhost:631)
+# JetPrint automatically detects default and network printers managed by CUPS
+
+# 3. Enable unattended boot-to-kiosk in systemd or autostart
+mkdir -p ~/.config/autostart
+cat << 'EOF' > ~/.config/autostart/jetprint.desktop
+[Desktop Entry]
+Type=Application
+Name=JetPrint Kiosk
+Exec=/usr/bin/jetprint
+X-GNOME-Autostart-enabled=true
+EOF
+```
+
+CUPS handles raw spooling to thermal receipt printers, laser office printers, and industrial multi-function copiers over USB or IPP.
+
+---
+
+## Security, recovery & local storage
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Local-First Storage Directory
+JetPrint stores all local state in the user's standard documents folder (`~/Documents/JetPrint KIOSK`):
+- `jetprint.db`: High-performance SQLite database tracking jobs, configuration, and audit logs.
+- `jobs/`: Local copies of downloaded PDFs and images queued for physical printing.
+- `logs/jetprint.log`: Rolling diagnostic log file capturing system, printer, and WebSocket events.
+- **Automated 48-Hour Cleanup:** Background worker automatically purges cached print files older than 48 hours to prevent storage exhaustion and protect user privacy.
+
+</td>
+<td width="50%" valign="top">
+
+### Cryptographic Security & Reset
+- **Argon2id Password Protection:** Owner credentials are never stored in plaintext; all administrative verification uses high-memory Argon2id hashing.
+- **BIP-39 12-Word Seed Phrase:** Upon first initialization, the setup wizard generates a standardized 12-word cryptographic seed phrase. If an owner forgets their password, they can reset it instantly without database surgery or data loss.
+- **State Migration & Resilience:** Reinstalling JetPrint automatically detects existing kiosk data, prompting you to **Keep Previous Data** or **Start Fresh**.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Multi-platform native engine & auto-updater
+
+JetPrint is built on **Tauri v2**, combining a lightweight, secure Rust core with a responsive React frontend:
+
+- **Ultra-Low Memory Footprint:** Idles at ~35–50 MB RAM, compared to 500+ MB for Electron equivalents.
+- **Cryptographically Signed Auto-Updates:** In-app updates are verified against a Minisign public key and downloaded directly from GitHub Releases.
+- **Dual-Path Update Resolution:** Employs an intelligent fallback resolver: if the primary manifest mirror is slow, it automatically queries GitHub Releases API with strict connect timeouts.
+- **Automated Matrix CI:** Every release candidate is compiled and packaged across 15 matrix targets including macOS Apple Silicon (`aarch64`), macOS Intel (`x86_64`), Windows (`x64` NSIS & MSI), Linux x86_64, and Raspberry Pi ARM64.
+
+---
+
+## How it's built
+
+JetPrint is organized as a modular repository separating the cloud relay facade from the native desktop kiosk:
+
+| Component | Path | Tech Stack | Responsibility |
+|---|---|---|---|
+| **Cloud Relay** | [`cloud-relay/`](cloud-relay/) | Node.js, Express, `ws`, `pdf-lib`, Razorpay | Serves mobile upload UI, counts PDF pages, manages UPI orders, verifies webhooks, pushes OTPs over WebSocket. |
+| **Kiosk Core (Rust)** | [`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/) | Tauri v2, `rusqlite`, `printers`, `argon2`, `bip39`, `tokio` | Native OS printer spooling (CUPS & WinSpool), SQLite storage, WebSocket client, 48h file cleanup, and Minisign updater. |
+| **Kiosk UI (React)** | [`desktop-kiosk/src/`](desktop-kiosk/src/) | React 18, TypeScript, Vite, Tailwind | Self-Service touch keypad, QR display, Owner Mode print queue, date filters, first-run wizard, and settings modal. |
+| **Release Pipeline** | [`.github/workflows/`](.github/workflows/) | GitHub Actions, Tauri Action, Minisign | Multi-platform build matrix, artifact signing, and unified `latest.json` updater manifest consolidation. |
+
+---
+
+## Get started
+
+### Prerequisites
+
+- **Node.js 20+** and `npm`
+- **Rust stable** (1.78+) and `cargo`
+- **Native OS Build Tools**:
+  - **macOS**: `xcode-select --install`
+  - **Windows**: Microsoft C++ Build Tools & WebView2
+  - **Linux / Raspberry Pi**:
     ```bash
     sudo apt-get update
     sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libcups2-dev
     ```
 
-## Quick Start
-
-### 1. Cloud Relay (`cloud-relay/`)
+### 1. Launch Cloud Relay
 
 ```bash
 cd cloud-relay
@@ -74,27 +277,56 @@ npm install
 npm run dev
 ```
 
-- Runs on `http://localhost:3000` by default.
-- Leave `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` blank to use Dev/Test payment simulation.
-- Run tests: `npm test` (Vitest).
+*Runs on `http://localhost:3000`. Leave `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` blank to use simulated payment mode.*
 
-### 2. Desktop Kiosk (`desktop-kiosk/`)
+### 2. Launch Desktop Kiosk
 
 ```bash
 cd desktop-kiosk
 npm install
-npm run dev          # Vite frontend only (http://localhost:5173)
-npx tauri dev        # Full Tauri app (Rust backend + React UI)
+
+# Option A: Run Vite UI only (browser preview at http://localhost:5173)
+npm run dev
+
+# Option B: Run full native desktop app with Rust backend
+npx tauri dev
 ```
 
-> **Local port:** Both services default to `http://localhost:3000` and connect automatically. For mobile QR testing on the same Wi-Fi, set **Cloud Relay URL** in **Owner Settings** to your LAN IP (e.g., `http://192.168.1.50:3000`), or use a public `https://` URL for production.
+> [!TIP]
+> **Mobile QR Testing on Local Wi-Fi:**
+> To test mobile scanning from a physical phone on the same Wi-Fi network, open **Owner Settings** on the kiosk and change **Cloud Relay URL** to your computer's LAN IP address (e.g. `http://192.168.1.50:3000`).
 
-- On first launch, the **3-step First-Run Setup Wizard** guides you through setting an Owner Password, saving your 12-word recovery phrase, and configuring printer, pricing, and Cloud Relay URL. On reinstall with existing data, choose **Keep Previous Data** or **Start Fresh**.
-- Run Rust tests: `cd desktop-kiosk/src-tauri && cargo test`
-- Build frontend: `cd desktop-kiosk && npm run build`
+---
+
+## Downloads
+
+Download production-ready installers from the [GitHub Releases](https://github.com/storytold/jetprint/releases) page.
+
+| Operating System | Architecture | Package Format | Notes |
+|---|---|---|---|
+| **macOS** | Apple Silicon (M1–M4) | `JetPrint_<ver>_aarch64.dmg` | Signed `.dmg` installer |
+| **macOS** | Intel (x86_64) | `JetPrint_<ver>_x64.dmg` | Signed `.dmg` installer |
+| **Windows** | 64-bit (x64) | `JetPrint_<ver>_x64-setup.exe` | Standard NSIS installer |
+| **Windows** | 64-bit (x64) | `JetPrint_<ver>_x64.msi` | Enterprise MSI deployment package |
+| **Linux** | x86_64 | `JetPrint_<ver>_amd64.deb` | Ubuntu, Debian, Mint |
+| **Linux** | x86_64 | `JetPrint_<ver>_amd64.AppImage` | Portable universal binary |
+| **Raspberry Pi** | ARM64 (`aarch64`) | `JetPrint_<ver>_arm64.deb` | Raspberry Pi OS 64-bit, Ubuntu ARM64 |
+| **Raspberry Pi** | ARM64 (`aarch64`) | `JetPrint_<ver>_arm64.AppImage` | Portable ARM64 binary |
+
+---
 
 ## Documentation
 
-- **[Owner Setup Guide](OWNER_SETUP_GUIDE.md)** — Step-by-step guide for shop owners: installation, first-run setup, recovery phrase, pricing, printer, modes, password reset, updates, and troubleshooting.
-- **[Developer Documentation](DEVELOPER_DOCS.md)** — Technical reference: APIs, WebSocket protocol, SQLite schema, Tauri commands/events, production deployment, and CI/CD.
-- **[Tauri Auto-Updater Setup](desktop-kiosk/src-tauri/UPDATER_SETUP.md)** — Signing keypair generation and GitHub Actions secret configuration.
+Detailed technical and operational manuals are available in the repository:
+
+- 📖 **[Owner Setup Guide](OWNER_SETUP_GUIDE.md)** — Step-by-step kiosk setup for store managers, hardware recommendations, pricing configuration, CUPS/Windows printer pairing, and password recovery.
+- 🛠️ **[Developer Documentation](DEVELOPER_DOCS.md)** — Technical reference: WebSocket wire protocol, REST API specs, SQLite database schema, Tauri IPC commands, and release pipelines.
+- 🔐 **[Tauri Auto-Updater Guide](desktop-kiosk/src-tauri/UPDATER_SETUP.md)** — Minisign cryptographic keypair generation and GitHub Actions secrets configuration.
+
+---
+
+## License and credits
+
+JetPrint is free and open-source software licensed under the **[GNU Affero General Public License v3.0](LICENSE)** (AGPL-3.0).
+
+Built with passion for independent print shops, students, and open-source communities.
