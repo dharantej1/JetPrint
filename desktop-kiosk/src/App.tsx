@@ -23,6 +23,7 @@ import { ExistingDataModal } from "./components/ExistingDataModal";
 import { OwnerSettingsModal } from "./components/OwnerSettingsModal";
 import { OwnerModeQueue, getTodayLocalDate } from "./components/OwnerModeQueue";
 import { LogsWindow } from "./components/LogsWindow";
+import { useKioskLayout } from "./hooks/useKioskLayout";
 
 const FALLBACK_STATE: KioskState = {
   machineId: "LOADING",
@@ -80,11 +81,8 @@ const KioskApp: React.FC = () => {
   const [isUpToDate, setIsUpToDate] = useState(false);
   const inProgressCheckRef = useRef<Promise<UpdateCheckResult> | null>(null);
 
-  // Vertical/portrait single-view navigation state
-  const [isPortrait, setIsPortrait] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.innerWidth <= 900 || window.innerHeight > window.innerWidth;
-  });
+  // Container & viewport responsive kiosk layout hook
+  const { layoutMode, isSingleView, containerRef } = useKioskLayout();
   const [activeVerticalView, setActiveVerticalView] = useState<"qr" | "otp">("qr");
 
   const handleToggleFullscreen = useCallback(async () => {
@@ -106,21 +104,9 @@ const KioskApp: React.FC = () => {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Detect portrait/vertical orientation
+  // Inactivity auto-reset timer on OTP screen in single-view mode (45 seconds)
   useEffect(() => {
-    const checkOrientation = () => {
-      const isNarrow = window.innerWidth <= 900;
-      const isTall = window.innerHeight > window.innerWidth;
-      setIsPortrait(isNarrow || isTall);
-    };
-    checkOrientation();
-    window.addEventListener("resize", checkOrientation);
-    return () => window.removeEventListener("resize", checkOrientation);
-  }, []);
-
-  // Inactivity auto-reset timer on OTP screen in portrait mode (45 seconds)
-  useEffect(() => {
-    if (!isPortrait || activeVerticalView !== "otp") return;
+    if (!isSingleView || activeVerticalView !== "otp") return;
 
     let timeoutId: number;
 
@@ -151,7 +137,7 @@ const KioskApp: React.FC = () => {
       window.removeEventListener("keydown", onUserActivity);
       window.removeEventListener("touchstart", onUserActivity);
     };
-  }, [isPortrait, activeVerticalView]);
+  }, [isSingleView, activeVerticalView]);
 
   const runUpdateCheck = useCallback(async (isBackground = false) => {
     if (inProgressCheckRef.current) {
@@ -514,7 +500,11 @@ const KioskApp: React.FC = () => {
         </div>
       )}
 
-      <main className="kiosk-main">
+      <main
+        ref={containerRef}
+        className={`kiosk-main kiosk-${layoutMode}`}
+        data-layout-mode={layoutMode}
+      >
         {kioskState.kioskMode === "owner" ? (
           <>
             <QrPanel
@@ -534,7 +524,7 @@ const KioskApp: React.FC = () => {
               cancellingJobId={cancellingJobId}
             />
           </>
-        ) : !isPortrait ? (
+        ) : !isSingleView ? (
           <>
             <QrPanel
               relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}

@@ -63,7 +63,11 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
       } else if (e.key === "Backspace") {
         if (otp.length > 0) onChangeOtp(otp.slice(0, -1));
       } else if (e.key === "Escape") {
-        onChangeOtp("");
+        if (otp.length > 0) {
+          onChangeOtp("");
+        } else if (onNavigateToQr) {
+          onNavigateToQr();
+        }
       } else if (e.key === "Enter" && otp.length === 6) {
         onSubmit();
       }
@@ -130,7 +134,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
         </div>
       )}
 
-      <div className="keypad-grid">
+      <div className="keypad-grid" role="group" aria-label="Numeric keypad">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
           <button
             key={digit}
@@ -138,6 +142,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
             className="key-btn"
             onClick={() => handleDigit(digit)}
             disabled={isBusy || disabled}
+            aria-label={`Digit ${digit}`}
           >
             {digit}
           </button>
@@ -148,6 +153,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
           className="key-btn action-clear"
           onClick={handleClear}
           disabled={isBusy || disabled}
+          aria-label="Clear entered OTP"
         >
           Clear
         </button>
@@ -157,6 +163,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
           className="key-btn"
           onClick={() => handleDigit("0")}
           disabled={isBusy || disabled}
+          aria-label="Digit 0"
         >
           0
         </button>
@@ -177,6 +184,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
         className="print-btn"
         onClick={onSubmit}
         disabled={otp.length !== 6 || isBusy || disabled}
+        aria-label="Print Document"
       >
         {isBusy ? (
           <>
