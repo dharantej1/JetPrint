@@ -80,6 +80,10 @@ const KioskApp: React.FC = () => {
   const [isUpToDate, setIsUpToDate] = useState(false);
   const inProgressCheckRef = useRef<Promise<UpdateCheckResult> | null>(null);
 
+  // Vertical/portrait single-view navigation state
+  const [isPortrait, setIsPortrait] = useState(false);
+  const [activeVerticalView, setActiveVerticalView] = useState<"qr" | "otp">("qr");
+
   const handleToggleFullscreen = useCallback(async () => {
     try {
       const next = await toggleFullscreen();
@@ -98,6 +102,53 @@ const KioskApp: React.FC = () => {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // Detect portrait/vertical orientation
+  useEffect(() => {
+    const checkOrientation = () => {
+      const isNarrow = window.innerWidth <= 900;
+      const isTall = window.innerHeight > window.innerWidth;
+      setIsPortrait(isNarrow || isTall);
+    };
+    checkOrientation();
+    window.addEventListener("resize", checkOrientation);
+    return () => window.removeEventListener("resize", checkOrientation);
+  }, []);
+
+  // Inactivity auto-reset timer on OTP screen in portrait mode (45 seconds)
+  useEffect(() => {
+    if (!isPortrait || activeVerticalView !== "otp") return;
+
+    let timeoutId: number;
+
+    const resetTimer = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        setOtp("");
+        setOtpStatus("idle");
+        setOtpMessage("");
+        setPrintedJob(null);
+        setActiveVerticalView("qr");
+      }, 45000); // 45 seconds of continuous inactivity
+    };
+
+    resetTimer();
+
+    const onUserActivity = () => {
+      resetTimer();
+    };
+
+    window.addEventListener("pointerdown", onUserActivity);
+    window.addEventListener("keydown", onUserActivity);
+    window.addEventListener("touchstart", onUserActivity);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("pointerdown", onUserActivity);
+      window.removeEventListener("keydown", onUserActivity);
+      window.removeEventListener("touchstart", onUserActivity);
+    };
+  }, [isPortrait, activeVerticalView]);
 
   const runUpdateCheck = useCallback(async (isBackground = false) => {
     if (inProgressCheckRef.current) {
@@ -294,6 +345,7 @@ const KioskApp: React.FC = () => {
         setOtpStatus("idle");
         setOtpMessage("");
         setPrintedJob(null);
+        setActiveVerticalView("qr");
       }, 6000);
     } catch (err) {
       setOtpStatus("error");
@@ -460,23 +512,57 @@ const KioskApp: React.FC = () => {
       )}
 
       <main className="kiosk-main">
-        <QrPanel
-          relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}
-          machineId={kioskState.machineId}
-          bwPricePaise={kioskState.bwPricePaise}
-          colorPricePaise={kioskState.colorPricePaise}
-        />
-
         {kioskState.kioskMode === "owner" ? (
-          <OwnerModeQueue
-            jobs={jobs}
-            selectedDate={selectedDate}
-            onDateChange={handleDateChange}
-            onRefresh={() => refreshJobs()}
-            onPrintJob={handleOwnerQueuePrint}
-            onCancelJob={handleOwnerQueueCancel}
-            printingOtp={printingJobOtp}
-            cancellingJobId={cancellingJobId}
+          <>
+            <QrPanel
+              relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}
+              machineId={kioskState.machineId}
+              bwPricePaise={kioskState.bwPricePaise}
+              colorPricePaise={kioskState.colorPricePaise}
+            />
+            <OwnerModeQueue
+              jobs={jobs}
+              selectedDate={selectedDate}
+              onDateChange={handleDateChange}
+              onRefresh={() => refreshJobs()}
+              onPrintJob={handleOwnerQueuePrint}
+              onCancelJob={handleOwnerQueueCancel}
+              printingOtp={printingJobOtp}
+              cancellingJobId={cancellingJobId}
+            />
+          </>
+        ) : !isPortrait ? (
+          <>
+            <QrPanel
+              relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}
+              machineId={kioskState.machineId}
+              bwPricePaise={kioskState.bwPricePaise}
+              colorPricePaise={kioskState.colorPricePaise}
+            />
+            <OtpKeypad
+              otp={otp}
+              onChangeOtp={(next) => {
+                setOtp(next);
+                if (otpStatus === "error" || otpStatus === "success") {
+                  setOtpStatus("idle");
+                  setOtpMessage("");
+                  setPrintedJob(null);
+                }
+              }}
+              onSubmit={handleVerifyAndPrint}
+              status={otpStatus}
+              feedbackMessage={otpMessage}
+              printedJob={printedJob}
+              disabled={!loaded || !kioskState.setupComplete}
+            />
+          </>
+        ) : activeVerticalView === "qr" ? (
+          <QrPanel
+            relayUrl={kioskState.qrRelayUrl || kioskState.relayUrl}
+            machineId={kioskState.machineId}
+            bwPricePaise={kioskState.bwPricePaise}
+            colorPricePaise={kioskState.colorPricePaise}
+            onNavigateToOtp={() => setActiveVerticalView("otp")}
           />
         ) : (
           <OtpKeypad
@@ -494,6 +580,13 @@ const KioskApp: React.FC = () => {
             feedbackMessage={otpMessage}
             printedJob={printedJob}
             disabled={!loaded || !kioskState.setupComplete}
+            onNavigateToQr={() => {
+              setOtp("");
+              setOtpStatus("idle");
+              setOtpMessage("");
+              setPrintedJob(null);
+              setActiveVerticalView("qr");
+            }}
           />
         )}
       </main>

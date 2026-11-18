@@ -15,6 +15,7 @@ import {
   Maximize,
   Minimize,
   Monitor,
+  Keyboard as KeyboardIcon,
 } from "lucide-react";
 import type { KioskMode, KioskState, PrintJob, PrinterInfo } from "../types";
 import {
@@ -36,6 +37,7 @@ import {
   verifyOtpAndPrint,
   verifyOwnerPassword,
 } from "../api/tauri";
+import { VirtualKeyboard } from "./VirtualKeyboard";
 
 interface OwnerSettingsModalProps {
   kioskState: KioskState;
@@ -111,6 +113,62 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   const [storageFolder, setStorageFolder] = useState<string>(
     kioskState.storagePath || ""
   );
+
+  // In-App Virtual Keyboard State for Touch Screens
+  const [activeVk, setActiveVk] = useState<{
+    label: string;
+    field: "password" | "phrase" | "newPassword" | "bwRupees" | "colorRupees" | "relayUrl" | "storageFolder";
+    type?: "text" | "password" | "number" | "url";
+  } | null>(null);
+
+  const getVkValue = (): string => {
+    if (!activeVk) return "";
+    switch (activeVk.field) {
+      case "password":
+        return password;
+      case "phrase":
+        return phrase;
+      case "newPassword":
+        return newPassword;
+      case "bwRupees":
+        return bwRupees;
+      case "colorRupees":
+        return colorRupees;
+      case "relayUrl":
+        return relayUrl;
+      case "storageFolder":
+        return storageFolder;
+      default:
+        return "";
+    }
+  };
+
+  const handleVkChange = (val: string) => {
+    if (!activeVk) return;
+    switch (activeVk.field) {
+      case "password":
+        setPassword(val);
+        break;
+      case "phrase":
+        setPhrase(val);
+        break;
+      case "newPassword":
+        setNewPassword(val);
+        break;
+      case "bwRupees":
+        setBwRupees(val);
+        break;
+      case "colorRupees":
+        setColorRupees(val);
+        break;
+      case "relayUrl":
+        setRelayUrl(val);
+        break;
+      case "storageFolder":
+        setStorageFolder(val);
+        break;
+    }
+  };
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -311,14 +369,36 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div className="form-group">
               <label className="form-label">Owner Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter admin password"
-                autoFocus
-                required
-              />
+              <div className="input-with-vk">
+                <input
+                  type="password"
+                  inputMode="text"
+                  autoComplete="current-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter admin password"
+                  autoFocus
+                  required
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "password"
+                        ? null
+                        : { label: "Owner Password", field: "password", type: "password" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
             </div>
 
             {authError && <p className="error-text">{authError}</p>}
@@ -347,24 +427,67 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
           <form onSubmit={handleResetPassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div className="form-group">
               <label className="form-label">12-Word BIP39 Recovery Phrase</label>
-              <textarea
-                rows={3}
-                value={phrase}
-                onChange={(e) => setPhrase(e.target.value)}
-                placeholder="word1 word2 word3 ... word12"
-                required
-              />
+              <div className="input-with-vk" style={{ alignItems: "flex-start" }}>
+                <textarea
+                  rows={3}
+                  inputMode="text"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={phrase}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  placeholder="word1 word2 word3 ... word12"
+                  required
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "phrase"
+                        ? null
+                        : { label: "12-Word Phrase", field: "phrase", type: "text" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="form-group">
               <label className="form-label">New Owner Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Minimum 6 characters"
-                required
-              />
+              <div className="input-with-vk">
+                <input
+                  type="password"
+                  inputMode="text"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  required
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "newPassword"
+                        ? null
+                        : { label: "New Password", field: "newPassword", type: "password" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
             </div>
 
             {authError && <p className="error-text">{authError}</p>}
@@ -533,39 +656,95 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">B/W Price per Page (₹)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={bwRupees}
-                    onChange={(e) => setBwRupees(e.target.value)}
-                    required
-                  />
+                  <div className="input-with-vk">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      min="0"
+                      value={bwRupees}
+                      onChange={(e) => setBwRupees(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="input-vk-btn"
+                      onClick={() =>
+                        setActiveVk(
+                          activeVk?.field === "bwRupees"
+                            ? null
+                            : { label: "B/W Price", field: "bwRupees", type: "number" }
+                        )
+                      }
+                      title="Toggle on-screen keyboard"
+                      aria-label="Toggle on-screen keyboard"
+                    >
+                      <KeyboardIcon size={16} />
+                    </button>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Color Price per Page (₹)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    value={colorRupees}
-                    onChange={(e) => setColorRupees(e.target.value)}
-                    required
-                  />
+                  <div className="input-with-vk">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      min="0"
+                      value={colorRupees}
+                      onChange={(e) => setColorRupees(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="input-vk-btn"
+                      onClick={() =>
+                        setActiveVk(
+                          activeVk?.field === "colorRupees"
+                            ? null
+                            : { label: "Color Price", field: "colorRupees", type: "number" }
+                        )
+                      }
+                      title="Toggle on-screen keyboard"
+                      aria-label="Toggle on-screen keyboard"
+                    >
+                      <KeyboardIcon size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="form-group">
                 <label className="form-label">Cloud Relay URL</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type="url"
-                    style={{ flex: 1 }}
-                    value={relayUrl}
-                    onChange={(e) => setRelayUrl(e.target.value)}
-                    placeholder="https://relay.example.com"
-                    required
-                  />
+                  <div className="input-with-vk" style={{ flex: 1 }}>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={relayUrl}
+                      onChange={(e) => setRelayUrl(e.target.value)}
+                      placeholder="https://relay.example.com"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="input-vk-btn"
+                      onClick={() =>
+                        setActiveVk(
+                          activeVk?.field === "relayUrl"
+                            ? null
+                            : { label: "Cloud Relay URL", field: "relayUrl", type: "url" }
+                        )
+                      }
+                      title="Toggle on-screen keyboard"
+                      aria-label="Toggle on-screen keyboard"
+                    >
+                      <KeyboardIcon size={16} />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="btn-secondary"
@@ -614,13 +793,33 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
               <div className="form-group">
                 <label className="form-label">Storage Folder</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    type="text"
-                    style={{ flex: 1 }}
-                    value={storageFolder}
-                    onChange={(e) => setStorageFolder(e.target.value)}
-                    placeholder="Application data folder"
-                  />
+                  <div className="input-with-vk" style={{ flex: 1 }}>
+                    <input
+                      type="text"
+                      inputMode="text"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={storageFolder}
+                      onChange={(e) => setStorageFolder(e.target.value)}
+                      placeholder="Application data folder"
+                    />
+                    <button
+                      type="button"
+                      className="input-vk-btn"
+                      onClick={() =>
+                        setActiveVk(
+                          activeVk?.field === "storageFolder"
+                            ? null
+                            : { label: "Storage Folder", field: "storageFolder", type: "text" }
+                        )
+                      }
+                      title="Toggle on-screen keyboard"
+                      aria-label="Toggle on-screen keyboard"
+                    >
+                      <KeyboardIcon size={16} />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="btn-secondary"
@@ -720,6 +919,16 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
           </div>
         )}
       </div>
+
+      {activeVk && (
+        <VirtualKeyboard
+          label={activeVk.label}
+          value={getVkValue()}
+          onChange={handleVkChange}
+          onClose={() => setActiveVk(null)}
+          type={activeVk.type}
+        />
+      )}
     </div>
   );
 };
