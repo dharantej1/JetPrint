@@ -72,8 +72,16 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
   const row3 = layout === "letters" ? LETTERS_ROW_3 : SYMBOLS_ROW_3;
 
   return (
-    <div className="vk-dock-overlay" role="region" aria-label="On-screen touch keyboard">
-      <div className="vk-container">
+    <div
+      className="vk-dock-overlay"
+      role="region"
+      aria-label="On-screen touch keyboard"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
+      <div className="vk-container" onClick={(e) => e.stopPropagation()}>
         <div className="vk-header">
           <div className="vk-header-title">
             <KeyboardIcon size={16} />
@@ -83,7 +91,10 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
             <button
               type="button"
               className="vk-action-btn vk-clear-btn"
-              onClick={handleClear}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClear();
+              }}
               title="Clear input"
             >
               Clear
@@ -91,7 +102,10 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
             <button
               type="button"
               className="vk-action-btn vk-close-btn"
-              onClick={onClose}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
               title="Hide keyboard"
               aria-label="Hide keyboard"
             >
@@ -249,7 +263,8 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
           <button
             type="button"
             className="vk-key vk-key-enter"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               if (onSubmit) onSubmit();
               else onClose();
             }}

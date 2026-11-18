@@ -684,13 +684,19 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
       </div>
 
       {activeVk && (
-        <VirtualKeyboard
-          label={activeVk.label}
-          value={getVkValue()}
-          onChange={handleVkChange}
-          onClose={() => setActiveVk(null)}
-          type={activeVk.type}
-        />
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <VirtualKeyboard
+            label={activeVk.label}
+            value={getVkValue()}
+            onChange={handleVkChange}
+            onClose={() => setActiveVk(null)}
+            type={activeVk.type}
+          />
+        </div>
       )}
     </div>
   );
