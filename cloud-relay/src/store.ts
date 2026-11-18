@@ -62,23 +62,28 @@ export class RelayStore {
     pricingPatch?: Partial<PricingConfig>
   ): KioskRecord {
     const cleanPreferred = preferredMachineId?.trim();
-    let machineId =
-      cleanPreferred && !this.kiosks.has(cleanPreferred)
-        ? cleanPreferred
-        : `kiosk_${crypto.randomBytes(4).toString('hex')}`;
-
-    while (this.kiosks.has(machineId)) {
+    let machineId: string;
+    if (
+      cleanPreferred &&
+      (!this.kiosks.has(cleanPreferred) || !this.kiosks.get(cleanPreferred)?.online)
+    ) {
+      machineId = cleanPreferred;
+    } else {
       machineId = `kiosk_${crypto.randomBytes(4).toString('hex')}`;
+      while (this.kiosks.has(machineId)) {
+        machineId = `kiosk_${crypto.randomBytes(4).toString('hex')}`;
+      }
     }
 
     const now = Date.now();
+    const existing = this.kiosks.get(machineId);
     const record: KioskRecord = {
       machineId,
       authToken: `tok_${crypto.randomBytes(24).toString('hex')}`,
-      pricing: this.mergePricing(this.defaultPricing(), pricingPatch),
+      pricing: this.mergePricing(existing?.pricing ?? this.defaultPricing(), pricingPatch),
       online: true,
       lastSeenAt: now,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
     };
     this.kiosks.set(machineId, record);
     return record;
@@ -115,6 +120,15 @@ export class RelayStore {
     }
 
     if (!authToken || existing.authToken !== authToken) {
+      if (!authToken && !existing.online) {
+        existing.authToken = `tok_${crypto.randomBytes(24).toString('hex')}`;
+        existing.online = true;
+        existing.lastSeenAt = Date.now();
+        if (pricingPatch) {
+          existing.pricing = this.mergePricing(existing.pricing, pricingPatch);
+        }
+        return { ok: true, kiosk: existing, newlyRegistered: true };
+      }
       return { ok: false, reason: 'Invalid auth_token for machine_id' };
     }
 

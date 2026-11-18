@@ -3,12 +3,11 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
-use uuid::Uuid;
 
 use crate::models::{AppConfig, JobFile, JobStatus, KioskMode, PrintJob, UpdateSettingsInput};
 
 pub fn generate_machine_id() -> String {
-    format!("jp-{}", &Uuid::new_v4().simple().to_string()[..12])
+    crate::machine_id::get_deterministic_machine_id()
 }
 
 pub fn current_exe_fingerprint() -> String {
@@ -352,7 +351,7 @@ impl Database {
         self.get_config()
     }
 
-    /// Generates a fresh machine_id and clears auth_token so the kiosk re-registers with the relay.
+    /// Sets machine_id to the host deterministic identity and clears auth_token so the kiosk re-registers with the relay.
     pub fn reset_machine_identity(&self) -> Result<AppConfig, String> {
         let new_machine_id = generate_machine_id();
         {
@@ -609,14 +608,14 @@ mod tests {
     }
 
     #[test]
-    fn reset_machine_identity_generates_new_id_and_clears_auth_token() {
+    fn reset_machine_identity_preserves_machine_id_and_clears_auth_token() {
         let db = Database::open_in_memory().expect("in-memory db");
         let initial = db.get_config().expect("initial config");
         db.update_auth_token(Some("tok_stale")).expect("set token");
 
         let reset = db.reset_machine_identity().expect("reset_machine_identity");
         assert!(reset.machine_id.starts_with("jp-"));
-        assert_ne!(reset.machine_id, initial.machine_id);
+        assert_eq!(reset.machine_id, initial.machine_id);
         assert_eq!(reset.auth_token, None);
     }
 
@@ -745,7 +744,7 @@ mod tests {
         let reset = db
             .reset_installation_data("0.1.0:300-400")
             .expect("reset_installation_data");
-        assert_ne!(reset.machine_id, original_cfg.machine_id);
+        assert_eq!(reset.machine_id, original_cfg.machine_id);
         assert!(reset.machine_id.starts_with("jp-"));
         assert_eq!(reset.relay_url, "http://localhost:3000");
         assert_eq!(reset.auth_token, None);

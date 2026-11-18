@@ -146,7 +146,7 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 | `verify_owner_password` | Auth | `password: string` | `boolean` | Verifies Argon2id password hash for Owner Settings. |
 | `reset_password_with_phrase` | Auth | `phrase: string, newPassword: string` | `void` | Validates BIP39 recovery phrase and updates owner password. |
 | `update_settings` | Settings | `settings: UpdateSettingsInput` | `KioskState` | Updates printer, pricing, kiosk mode, and reconnects relay. |
-| `reset_machine_identity` | Settings | — | `KioskState` | Clears machine ID and token to regenerate new identity. |
+| `reset_machine_identity` | Settings | — | `KioskState` | Clears auth token and re-evaluates host machine identity for relay re-registration. |
 | `keep_existing_data` | Storage | — | `KioskState` | Dismisses existing data prompt and continues with saved DB. |
 | `reset_installation_data` | Storage | — | `KioskState` | Deletes local database, clears credentials, and re-triggers setup. |
 | `pick_storage_folder` | Storage | — | `string \| null` | Native OS folder picker to choose custom storage directory. |
