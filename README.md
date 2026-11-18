@@ -21,6 +21,16 @@
 </p>
 
 <p align="center">
+  <a href="https://www.paypal.com/ncp/payment/6GYEW6LMM7XLQ" target="_blank" rel="noopener noreferrer">
+    <img alt="Donate with PayPal" src="https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://buymeacoffee.com/pusthakalaw" target="_blank" rel="noopener noreferrer">
+    <img alt="Buy Me A Coffee" src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black">
+  </a>
+</p>
+
+<p align="center">
   <a href="#highlights">Highlights</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#scan-upload--pay-in-seconds">Mobile</a> ·
@@ -30,7 +40,8 @@
   <a href="#how-its-built">Architecture</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="#downloads">Downloads</a> ·
-  <a href="#documentation">Documentation</a>
+  <a href="#documentation">Documentation</a> ·
+  <a href="#support">Support</a>
 </p>
 
 ---
@@ -300,7 +311,7 @@ npx tauri dev
 
 ## Downloads
 
-Download production-ready installers from the [GitHub Releases](https://github.com/storytold/jetprint/releases) page.
+Download production-ready installers from the [GitHub Releases](https://github.com/dharantej1/JetPrint/releases) page.
 
 | Operating System | Architecture | Package Format | Notes |
 |---|---|---|---|
@@ -322,6 +333,30 @@ Detailed technical and operational manuals are available in the repository:
 - 📖 **[Owner Setup Guide](OWNER_SETUP_GUIDE.md)** — Step-by-step kiosk setup for store managers, hardware recommendations, pricing configuration, CUPS/Windows printer pairing, and password recovery.
 - 🛠️ **[Developer Documentation](DEVELOPER_DOCS.md)** — Technical reference: WebSocket wire protocol, REST API specs, SQLite database schema, Tauri IPC commands, and release pipelines.
 - 🔐 **[Tauri Auto-Updater Guide](desktop-kiosk/src-tauri/UPDATER_SETUP.md)** — Minisign cryptographic keypair generation and GitHub Actions secrets configuration.
+
+---
+
+## Support
+
+If you find JetPrint helpful and want to support ongoing development, hardware testing (Raspberry Pi setups, printer spoolers), and maintenance, consider buying a coffee or donating via PayPal:
+
+<p align="center">
+  <a href="https://www.paypal.com/ncp/payment/6GYEW6LMM7XLQ" target="_blank" rel="noopener noreferrer">
+    <img src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" height="42" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://buymeacoffee.com/pusthakalaw" target="_blank" rel="noopener noreferrer">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="42" />
+  </a>
+  <br><br>
+  <a href="https://www.paypal.com/ncp/payment/6GYEW6LMM7XLQ" target="_blank" rel="noopener noreferrer">
+    <img src="https://www.paypalobjects.com/images/Debit_Credit_APM.svg" alt="Cards: Visa, Mastercard, Amex, Discover" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>Direct PayPal: <a href="https://paypal.me/dharantej1" target="_blank" rel="noopener noreferrer"><b>paypal.me/dharantej1</b></a> · Buy Me a Coffee: <a href="https://buymeacoffee.com/pusthakalaw" target="_blank" rel="noopener noreferrer"><b>buymeacoffee.com/pusthakalaw</b></a></sub>
+</p>
 
 ---
 
