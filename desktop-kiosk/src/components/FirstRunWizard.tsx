@@ -10,6 +10,7 @@ import {
   Info,
   FolderOpen,
   ShieldAlert,
+  Keyboard as KeyboardIcon,
 } from "lucide-react";
 import type { KioskState, PrinterInfo } from "../types";
 import {
@@ -21,6 +22,7 @@ import {
   setStoragePath,
   updateSettings,
 } from "../api/tauri";
+import { VirtualKeyboard } from "./VirtualKeyboard";
 
 interface FirstRunWizardProps {
   initialState: KioskState;
@@ -59,6 +61,57 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
     (initialState.colorPricePaise / 100).toFixed(2)
   );
   const [relayUrl, setRelayUrl] = useState<string>(initialState.relayUrl);
+
+  // In-App Virtual Keyboard State for Touch Screens
+  const [activeVk, setActiveVk] = useState<{
+    label: string;
+    field: "password" | "confirmPassword" | "storageFolder" | "bwRupees" | "colorRupees" | "relayUrl";
+    type?: "text" | "password" | "number" | "url";
+  } | null>(null);
+
+  const getVkValue = (): string => {
+    if (!activeVk) return "";
+    switch (activeVk.field) {
+      case "password":
+        return password;
+      case "confirmPassword":
+        return confirmPassword;
+      case "storageFolder":
+        return storageFolder;
+      case "bwRupees":
+        return bwRupees;
+      case "colorRupees":
+        return colorRupees;
+      case "relayUrl":
+        return relayUrl;
+      default:
+        return "";
+    }
+  };
+
+  const handleVkChange = (val: string) => {
+    if (!activeVk) return;
+    switch (activeVk.field) {
+      case "password":
+        setPassword(val);
+        break;
+      case "confirmPassword":
+        setConfirmPassword(val);
+        break;
+      case "storageFolder":
+        setStorageFolder(val);
+        break;
+      case "bwRupees":
+        setBwRupees(val);
+        break;
+      case "colorRupees":
+        setColorRupees(val);
+        break;
+      case "relayUrl":
+        setRelayUrl(val);
+        break;
+    }
+  };
 
   useEffect(() => {
     if (step !== 4) return;
@@ -239,25 +292,69 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
 
             <div className="form-group">
               <label className="form-label">Admin Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 6 characters"
-                autoFocus
-                required
-              />
+              <div className="input-with-vk">
+                <input
+                  type="password"
+                  inputMode="text"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Minimum 6 characters"
+                  autoFocus
+                  required
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "password"
+                        ? null
+                        : { label: "Admin Password", field: "password", type: "password" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="form-group">
               <label className="form-label">Confirm Admin Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter password"
-                required
-              />
+              <div className="input-with-vk">
+                <input
+                  type="password"
+                  inputMode="text"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "confirmPassword"
+                        ? null
+                        : { label: "Confirm Password", field: "confirmPassword", type: "password" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
             </div>
 
             {error && <p className="error-text">{error}</p>}
@@ -334,14 +431,34 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
             <div className="form-group">
               <label className="form-label">Target Storage Folder</label>
               <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="text"
-                  style={{ flex: 1 }}
-                  value={storageFolder}
-                  onChange={(e) => setStorageFolder(e.target.value)}
-                  placeholder="Default application data folder"
-                  required
-                />
+                <div className="input-with-vk" style={{ flex: 1 }}>
+                  <input
+                    type="text"
+                    inputMode="text"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={storageFolder}
+                    onChange={(e) => setStorageFolder(e.target.value)}
+                    placeholder="Default application data folder"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="input-vk-btn"
+                    onClick={() =>
+                      setActiveVk(
+                        activeVk?.field === "storageFolder"
+                          ? null
+                          : { label: "Storage Folder", field: "storageFolder", type: "text" }
+                      )
+                    }
+                    title="Toggle on-screen keyboard"
+                    aria-label="Toggle on-screen keyboard"
+                  >
+                    <KeyboardIcon size={16} />
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="btn-secondary"
@@ -432,23 +549,59 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">B&amp;W Price (₹ / page)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  value={bwRupees}
-                  onChange={(e) => setBwRupees(e.target.value)}
-                />
+                <div className="input-with-vk">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    min="0"
+                    value={bwRupees}
+                    onChange={(e) => setBwRupees(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="input-vk-btn"
+                    onClick={() =>
+                      setActiveVk(
+                        activeVk?.field === "bwRupees"
+                          ? null
+                          : { label: "B/W Price", field: "bwRupees", type: "number" }
+                      )
+                    }
+                    title="Toggle on-screen keyboard"
+                    aria-label="Toggle on-screen keyboard"
+                  >
+                    <KeyboardIcon size={16} />
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">Color Price (₹ / page)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  value={colorRupees}
-                  onChange={(e) => setColorRupees(e.target.value)}
-                />
+                <div className="input-with-vk">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.5"
+                    min="0"
+                    value={colorRupees}
+                    onChange={(e) => setColorRupees(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="input-vk-btn"
+                    onClick={() =>
+                      setActiveVk(
+                        activeVk?.field === "colorRupees"
+                          ? null
+                          : { label: "Color Price", field: "colorRupees", type: "number" }
+                      )
+                    }
+                    title="Toggle on-screen keyboard"
+                    aria-label="Toggle on-screen keyboard"
+                  >
+                    <KeyboardIcon size={16} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -457,12 +610,33 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                 <Wifi size={14} color="#818cf8" />
                 <span>Cloud Relay URL</span>
               </label>
-              <input
-                type="url"
-                value={relayUrl}
-                onChange={(e) => setRelayUrl(e.target.value)}
-                placeholder="http://localhost:3000"
-              />
+              <div className="input-with-vk">
+                <input
+                  type="url"
+                  inputMode="url"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={relayUrl}
+                  onChange={(e) => setRelayUrl(e.target.value)}
+                  placeholder="http://localhost:3000"
+                />
+                <button
+                  type="button"
+                  className="input-vk-btn"
+                  onClick={() =>
+                    setActiveVk(
+                      activeVk?.field === "relayUrl"
+                        ? null
+                        : { label: "Cloud Relay URL", field: "relayUrl", type: "url" }
+                    )
+                  }
+                  title="Toggle on-screen keyboard"
+                  aria-label="Toggle on-screen keyboard"
+                >
+                  <KeyboardIcon size={16} />
+                </button>
+              </div>
               <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.4 }}>
                 The Cloud Relay server connects this kiosk to the customer QR upload page and
                 delivers print jobs &amp; OTPs.
@@ -508,6 +682,16 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
           </form>
         )}
       </div>
+
+      {activeVk && (
+        <VirtualKeyboard
+          label={activeVk.label}
+          value={getVkValue()}
+          onChange={handleVkChange}
+          onClose={() => setActiveVk(null)}
+          type={activeVk.type}
+        />
+      )}
     </div>
   );
 };

@@ -284,6 +284,14 @@ textarea:focus {
   justify-content: center;
 }
 
+.qr-frame svg {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 216px;
+  max-height: 216px;
+  display: block;
+}
+
 .pricing-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -857,6 +865,7 @@ textarea:focus {
   border-radius: var(--radius-sm);
   background: rgba(2, 6, 23, 0.45);
   border: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
 }
 
 .queue-filter-group {
@@ -1098,8 +1107,8 @@ textarea:focus {
   flex-shrink: 0;
 }
 
-/* Responsive Kiosk Layout */
-@media (max-width: 900px) {
+/* Responsive & Vertical (Portrait) Kiosk Layout */
+@media (orientation: portrait), (max-aspect-ratio: 1/1), (max-width: 900px) {
   html,
   body,
   #root {
@@ -1107,18 +1116,561 @@ textarea:focus {
   }
 
   .kiosk-shell {
-    height: auto;
+    height: 100%;
     min-height: 100%;
-    padding: 14px 16px;
+    padding: 16px;
+    gap: 14px;
+    display: flex;
+    flex-direction: column;
   }
 
   .kiosk-header {
     flex-wrap: wrap;
     gap: 10px;
+    flex-shrink: 0;
   }
 
   .kiosk-main {
     grid-template-columns: 1fr;
     gap: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panel-card {
+    padding: 24px 20px;
+    flex: 1;
+    justify-content: space-evenly;
+    min-height: min-content;
+  }
+
+  .qr-section {
+    gap: 16px;
+  }
+
+  .pricing-grid {
+    max-width: 440px;
+  }
+
+  .keypad-section {
+    gap: 16px;
+    justify-content: space-evenly;
+  }
+
+  .otp-boxes {
+    gap: 8px;
+  }
+
+  .otp-box {
+    width: clamp(44px, 11vw, 56px);
+    height: clamp(52px, 13vw, 66px);
+    font-size: clamp(22px, 5.5vw, 28px);
+  }
+
+  .keypad-grid {
+    max-width: 400px;
+    gap: 10px;
+  }
+
+  .print-btn {
+    max-width: 400px;
+    width: 100%;
+  }
+
+  .job-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .modal-card,
+  .modal-card.wide {
+    width: min(94vw, 580px);
+    max-height: 88dvh;
   }
 }
+
+/* Educational CTA Button on QR Screen */
+.qr-enter-otp-cta {
+  width: 100%;
+  max-width: 440px;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(16, 185, 129, 0.16));
+  border: 1.5px solid rgba(99, 102, 241, 0.45);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  margin-top: 6px;
+}
+
+.qr-enter-otp-cta:hover {
+  border-color: #818cf8;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.32), rgba(16, 185, 129, 0.22));
+  box-shadow: 0 10px 28px rgba(99, 102, 241, 0.3);
+  transform: translateY(-1px);
+}
+
+.qr-enter-otp-cta:active {
+  transform: scale(0.98);
+}
+
+.qr-cta-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.qr-cta-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.3);
+  color: #c7d2fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.qr-cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qr-cta-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.qr-cta-sub {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.qr-cta-arrow {
+  color: #a5b4fc;
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.qr-enter-otp-cta:hover .qr-cta-arrow {
+  transform: translateX(3px);
+  color: #fff;
+}
+
+/* Back to QR Code Button on Keypad Screen */
+.btn-back-to-qr {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  margin-top: 4px;
+}
+
+.btn-back-to-qr:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: var(--text-primary);
+}
+
+.btn-back-to-qr:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Tall Commercial Totems & Standing Kiosks (e.g. 1080x1920, 1200x1920, 1440x2560) */
+@media (orientation: portrait) and (min-height: 1400px) {
+  html,
+  body,
+  #root {
+    overflow: hidden; /* Seamless fit without scrollbars on tall totems */
+  }
+
+  .kiosk-shell {
+    height: 100%;
+    padding: 32px 36px;
+    gap: 24px;
+    justify-content: space-between;
+  }
+
+  .kiosk-header {
+    padding: 16px 24px;
+  }
+
+  .brand-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .brand-title {
+    font-size: 24px;
+  }
+
+  .brand-subtitle {
+    font-size: 14px;
+  }
+
+  .kiosk-main {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    flex: 1;
+  }
+
+  .panel-card {
+    padding: 32px 28px;
+  }
+
+  .qr-section {
+    gap: 20px;
+  }
+
+  .qr-frame {
+    padding: 24px;
+    border-radius: 24px;
+  }
+
+  .qr-frame svg {
+    max-width: 260px !important;
+    max-height: 260px !important;
+  }
+
+  .qr-heading {
+    font-size: 34px;
+  }
+
+  .qr-subtext {
+    font-size: 16px;
+    max-width: 460px;
+  }
+
+  .pricing-grid {
+    max-width: 460px;
+    gap: 16px;
+  }
+
+  .price-chip {
+    padding: 14px 20px;
+  }
+
+  .price-value {
+    font-size: 24px;
+  }
+
+  .steps-row {
+    font-size: 14px;
+    gap: 24px;
+  }
+
+  .step-num {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+
+  /* Keypad in tall totem */
+  .keypad-section {
+    gap: 20px;
+  }
+
+  .otp-title {
+    font-size: 30px;
+  }
+
+  .otp-subtitle {
+    font-size: 15px;
+  }
+
+  .otp-box {
+    width: 58px;
+    height: 72px;
+    font-size: 32px;
+    border-radius: 16px;
+  }
+
+  .keypad-grid {
+    max-width: 440px;
+    gap: 14px;
+  }
+
+  .key-btn {
+    height: 74px;
+    font-size: 28px;
+    border-radius: 18px;
+  }
+
+  .print-btn {
+    max-width: 440px;
+    height: 72px;
+    font-size: 20px;
+    border-radius: 18px;
+  }
+}
+
+/* Compact Portrait Displays & Vertical Tablets (e.g. 768x1024, 800x1280) */
+@media (orientation: portrait) and (max-height: 1399px) {
+  html,
+  body,
+  #root {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kiosk-shell {
+    height: auto;
+    min-height: 100%;
+    padding: 12px 14px;
+    gap: 14px;
+  }
+
+  .qr-frame {
+    padding: 14px;
+  }
+
+  .qr-frame svg {
+    max-width: 170px !important;
+    max-height: 170px !important;
+  }
+
+  .qr-heading {
+    font-size: 22px;
+  }
+
+  .qr-subtext {
+    font-size: 13px;
+  }
+
+  .price-value {
+    font-size: 18px;
+  }
+
+  .key-btn {
+    height: 56px;
+    font-size: 22px;
+  }
+}
+
+/* On-Screen Touch Virtual Keyboard */
+.vk-dock-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1200;
+  background: rgba(10, 15, 29, 0.96);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6);
+  padding: 10px 14px 14px 14px;
+  animation: vkSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes vkSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.vk-container {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  margin-bottom: 4px;
+}
+
+.vk-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.vk-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vk-action-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+  transition: all 0.12s ease;
+}
+
+.vk-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.vk-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+
+.vk-row {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  touch-action: manipulation;
+}
+
+.vk-num-row {
+  margin-bottom: 2px;
+}
+
+.vk-spacer-half {
+  flex: 0.5;
+}
+
+.vk-key {
+  flex: 1;
+  min-height: 44px;
+  min-width: 24px;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  cursor: pointer;
+  transition: transform 0.06s ease, background 0.1s ease;
+}
+
+.vk-key:hover {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.vk-key:active {
+  transform: scale(0.94);
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.vk-key-num {
+  min-height: 38px;
+  font-size: 14px;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.vk-key-special {
+  flex: 1.4;
+  background: rgba(51, 65, 85, 0.8);
+  font-size: 13px;
+}
+
+.vk-key-shift.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.vk-key-shift.caps-active {
+  background: var(--warning);
+  color: #000;
+}
+
+.vk-key-space {
+  flex: 4;
+}
+
+.vk-key-symbol {
+  flex: 0.9;
+}
+
+.vk-key-enter {
+  flex: 2;
+  background: var(--accent-primary);
+  color: #fff;
+  gap: 6px;
+}
+
+.vk-key-enter:hover {
+  background: var(--accent-hover);
+}
+
+/* Input with VK trigger styling */
+.input-with-vk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.input-with-vk input {
+  flex: 1;
+}
+
+.input-vk-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--accent-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.input-vk-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #fff;
+}
+
+@media (max-width: 600px) {
+  .vk-dock-overlay {
+    padding: 8px 6px 12px 6px;
+  }
+  .vk-row {
+    gap: 4px;
+  }
+  .vk-key {
+    min-height: 40px;
+    font-size: 15px;
+  }
+}
+

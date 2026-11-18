@@ -7,6 +7,7 @@ import {
   Printer,
   KeyRound,
   FileText,
+  ArrowLeft,
 } from "lucide-react";
 import type { PrintJob } from "../types";
 
@@ -20,6 +21,7 @@ interface OtpKeypadProps {
   feedbackMessage: string;
   printedJob?: PrintJob | null;
   disabled?: boolean;
+  onNavigateToQr?: () => void;
 }
 
 export const OtpKeypad: React.FC<OtpKeypadProps> = ({
@@ -30,6 +32,7 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
   feedbackMessage,
   printedJob = null,
   disabled = false,
+  onNavigateToQr,
 }) => {
   const isBusy = status === "verifying";
 
@@ -187,6 +190,19 @@ export const OtpKeypad: React.FC<OtpKeypadProps> = ({
           </>
         )}
       </button>
+
+      {onNavigateToQr && (
+        <button
+          type="button"
+          className="btn-back-to-qr"
+          onClick={onNavigateToQr}
+          disabled={isBusy}
+          aria-label="Back to QR Code"
+        >
+          <ArrowLeft size={16} />
+          <span>Back to QR Code</span>
+        </button>
+      )}
     </section>
   );
 };

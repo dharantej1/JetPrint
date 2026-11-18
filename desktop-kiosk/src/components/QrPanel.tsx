@@ -1,12 +1,13 @@
 import React from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Smartphone, Sparkles } from "lucide-react";
+import { Smartphone, Sparkles, KeyRound, ArrowRight } from "lucide-react";
 
 interface QrPanelProps {
   relayUrl: string;
   machineId: string;
   bwPricePaise: number;
   colorPricePaise: number;
+  onNavigateToOtp?: () => void;
 }
 
 function formatPaise(paise: number): string {
@@ -19,6 +20,7 @@ export const QrPanel: React.FC<QrPanelProps> = ({
   machineId,
   bwPricePaise,
   colorPricePaise,
+  onNavigateToOtp,
 }) => {
   const cleanRelay = relayUrl.replace(/\/+$/, "") || "http://localhost:3000";
   const uploadUrl = `${cleanRelay}/upload?machine_id=${encodeURIComponent(machineId)}`;
@@ -33,7 +35,7 @@ export const QrPanel: React.FC<QrPanelProps> = ({
       <div>
         <h1 className="qr-heading">Scan to Upload &amp; Pay</h1>
         <p className="qr-subtext" style={{ marginTop: 6 }}>
-          Point your phone camera at the QR code to upload PDF or image files and pay via UPI.
+          Point your phone camera at the QR code to select documents and pay via UPI.
         </p>
       </div>
 
@@ -78,6 +80,26 @@ export const QrPanel: React.FC<QrPanelProps> = ({
           <span>Enter 6-Digit OTP</span>
         </div>
       </div>
+
+      {onNavigateToOtp && (
+        <button
+          type="button"
+          className="qr-enter-otp-cta"
+          onClick={onNavigateToOtp}
+          aria-label="Enter 6-Digit OTP to print"
+        >
+          <div className="qr-cta-left">
+            <span className="qr-cta-icon-box">
+              <KeyRound size={20} />
+            </span>
+            <div className="qr-cta-text">
+              <span className="qr-cta-title">Already Paid on Phone?</span>
+              <span className="qr-cta-sub">Tap here to enter your 6-digit OTP &amp; print</span>
+            </div>
+          </div>
+          <ArrowRight size={22} className="qr-cta-arrow" />
+        </button>
+      )}
     </section>
   );
 };
