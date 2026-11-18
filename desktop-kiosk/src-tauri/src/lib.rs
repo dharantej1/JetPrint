@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod db;
 pub mod logger;
+pub mod machine_id;
 pub mod models;
 pub mod printer;
 pub mod security;
