@@ -69,6 +69,7 @@
         <div class="pricing-bar">
           <span>B&amp;W: <strong id="bwRateEmpty">—</strong>/pg</span>
           <span>Color: <strong id="colorRateEmpty">—</strong>/pg</span>
+          <span id="paperSizesEmptyRow">Sizes: <strong id="paperSizesEmpty">A4</strong></span>
         </div>
         <label class="dropzone" id="dropzone" for="fileInput">
           <div class="dropzone-icon">📄</div>
@@ -98,6 +99,7 @@
 
           <div class="doc-meta-row">
             <span id="activeDocPages">1 page</span>
+            <span id="activeDocPaper">A4</span>
             <span id="activeDocCost">₹2.00</span>
           </div>
         </div>
@@ -122,6 +124,13 @@
               <button type="button" class="seg-btn" id="btnColor">
                 Color (<span id="colorRateBtn">—</span>)
               </button>
+            </div>
+          </div>
+
+          <div class="setting-block" id="paperSizeContainer">
+            <span class="setting-label">Paper Size</span>
+            <div class="segmented" id="paperSizeGroup" role="group" aria-label="Paper Size">
+              <button type="button" class="seg-btn active" data-size="A4">A4</button>
             </div>
           </div>
 

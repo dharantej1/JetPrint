@@ -92,9 +92,39 @@ export function countSelectedPages(pageRange: string, totalPages: number): numbe
   return parsePageRange(pageRange, totalPages).length;
 }
 
+export const PAPER_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  A4: { width: 595.28, height: 841.89 },
+  A3: { width: 841.89, height: 1190.55 },
+  Letter: { width: 612, height: 792 },
+  Legal: { width: 612, height: 1008 },
+};
+
+export function getPaperDimensions(paperSize?: string): { width: number; height: number } {
+  if (!paperSize || typeof paperSize !== 'string') {
+    return PAPER_DIMENSIONS.A4;
+  }
+  const upper = paperSize.trim().toUpperCase();
+  if (upper === 'A4') return PAPER_DIMENSIONS.A4;
+  if (upper === 'A3') return PAPER_DIMENSIONS.A3;
+  if (upper === 'LETTER') return PAPER_DIMENSIONS.Letter;
+  if (upper === 'LEGAL') return PAPER_DIMENSIONS.Legal;
+  return PAPER_DIMENSIONS[paperSize] || PAPER_DIMENSIONS.A4;
+}
+
+export function normalizePaperSize(raw?: unknown): string {
+  if (typeof raw !== 'string') return 'A4';
+  const trimmed = raw.trim();
+  const upper = trimmed.toUpperCase();
+  if (upper === 'A4') return 'A4';
+  if (upper === 'A3') return 'A3';
+  if (upper === 'LETTER') return 'Letter';
+  if (upper === 'LEGAL') return 'Legal';
+  return trimmed || 'A4';
+}
+
 export function normalizeFileSettings(
   raw: Partial<FilePrintSettings> | undefined,
-  fallback: { copies: number; color: boolean }
+  fallback: { copies: number; color: boolean; paperSize?: string }
 ): FilePrintSettings {
   const rawCopies = Number(raw?.copies ?? fallback.copies);
   const copies =
@@ -113,6 +143,8 @@ export function normalizeFileSettings(
     typeof raw?.pageRange === 'string' && raw.pageRange.trim()
       ? raw.pageRange.trim()
       : 'all';
+  const rawPaper = (raw as any)?.paperSize ?? (raw as any)?.paper_size ?? fallback.paperSize;
+  const paperSize = normalizePaperSize(rawPaper);
 
   return {
     copies,
@@ -121,6 +153,7 @@ export function normalizeFileSettings(
     orientation,
     pagesPerSheet,
     pageRange,
+    paperSize,
     printReady: Boolean(raw?.printReady),
   };
 }
@@ -136,6 +169,7 @@ export function needsPrintReadyProcessing(
   if (!isPdf) return true;
   if (settings.pagesPerSheet > 1) return true;
   if (settings.orientation === 'landscape') return true;
+  if (settings.paperSize && settings.paperSize.toUpperCase() !== 'A4') return true;
   const pr = (settings.pageRange || '').trim().toLowerCase();
   if (pr && pr !== 'all') return true;
   return false;
@@ -154,8 +188,9 @@ export async function buildPrintReadyPdf(
   const destDoc = await PDFDocument.create();
 
   const isLandscape = settings.orientation === 'landscape';
-  const sheetWidth = isLandscape ? 841.89 : 595.28;
-  const sheetHeight = isLandscape ? 595.28 : 841.89;
+  const dims = getPaperDimensions(settings.paperSize || 'A4');
+  const sheetWidth = isLandscape ? dims.height : dims.width;
+  const sheetHeight = isLandscape ? dims.width : dims.height;
 
   interface RenderItem {
     emb: any;

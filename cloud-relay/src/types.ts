@@ -14,6 +14,18 @@ export interface KioskRecord {
   online: boolean;
   lastSeenAt: number;
   createdAt: number;
+  supportedPaperSizes?: string[];
+}
+
+export type KioskStateRecord = KioskRecord;
+
+export interface KioskInfo {
+  machine_id: string;
+  online: boolean;
+  pricing: PricingConfig;
+  dev_mode: boolean;
+  supportedPaperSizes?: string[];
+  supported_paper_sizes?: string[];
 }
 
 export interface PrintSettings {
@@ -32,6 +44,7 @@ export interface FilePrintSettings {
   orientation: OrientationMode;
   pagesPerSheet: PagesPerSheet;
   pageRange: string;
+  paperSize?: string;
   printReady?: boolean;
 }
 
@@ -87,18 +100,29 @@ export type KioskToRelayMessage =
       type: 'register';
       machine_id?: string;
       pricing?: Partial<PricingConfig>;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'auth';
       machine_id: string;
       auth_token?: string;
       pricing?: Partial<PricingConfig>;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'pricing_update';
       bwPerPagePaise: number;
       colorPerPagePaise: number;
       shopName?: string;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
+    }
+  | {
+      type: 'paper_sizes_update' | 'config_update';
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'job_ack';
@@ -121,16 +145,22 @@ export type RelayToKioskMessage =
       machine_id: string;
       auth_token: string;
       pricing: PricingConfig;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'auth_ok';
       machine_id: string;
       auth_token: string;
       pricing: PricingConfig;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'pricing_ack';
       pricing: PricingConfig;
+      supportedPaperSizes?: string[];
+      supported_paper_sizes?: string[];
     }
   | {
       type: 'job_dispatch';

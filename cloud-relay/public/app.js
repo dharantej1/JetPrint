@@ -5,7 +5,8 @@
 
   const state = {
     pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000, shopName: '' },
-    docs: [], // { id, file, pageCount, pdfDoc, objectUrl, settings: { copies, color, duplex, orientation, pagesPerSheet, pageRange } }
+    supportedPaperSizes: ['A4'],
+    docs: [], // { id, file, pageCount, pdfDoc, objectUrl, settings: { copies, color, duplex, orientation, pagesPerSheet, pageRange, paperSize } }
     activeIndex: 0,
     moreExpanded: false,
     currentJob: null,
@@ -32,6 +33,8 @@
     emptyUploadCard: document.getElementById('emptyUploadCard'),
     bwRateEmpty: document.getElementById('bwRateEmpty'),
     colorRateEmpty: document.getElementById('colorRateEmpty'),
+    paperSizesEmptyRow: document.getElementById('paperSizesEmptyRow'),
+    paperSizesEmpty: document.getElementById('paperSizesEmpty'),
     dropzone: document.getElementById('dropzone'),
     workspaceSection: document.getElementById('workspaceSection'),
     docCounter: document.getElementById('docCounter'),
@@ -43,6 +46,7 @@
     thumbDuplexBadge: document.getElementById('thumbDuplexBadge'),
     openPreviewBtn: document.getElementById('openPreviewBtn'),
     activeDocPages: document.getElementById('activeDocPages'),
+    activeDocPaper: document.getElementById('activeDocPaper'),
     activeDocCost: document.getElementById('activeDocCost'),
     copiesMinus: document.getElementById('copiesMinus'),
     copiesPlus: document.getElementById('copiesPlus'),
@@ -51,6 +55,8 @@
     btnColor: document.getElementById('btnColor'),
     bwRateBtn: document.getElementById('bwRateBtn'),
     colorRateBtn: document.getElementById('colorRateBtn'),
+    paperSizeContainer: document.getElementById('paperSizeContainer'),
+    paperSizeGroup: document.getElementById('paperSizeGroup'),
     btn1Sided: document.getElementById('btn1Sided'),
     btn2Sided: document.getElementById('btn2Sided'),
     btnPortrait: document.getElementById('btnPortrait'),
@@ -461,6 +467,7 @@
           orientation: 'portrait',
           pagesPerSheet: 1,
           pageRange: 'all',
+          paperSize: (state.supportedPaperSizes && state.supportedPaperSizes[0]) || 'A4',
         },
       });
     }
@@ -468,6 +475,14 @@
       state.activeIndex = state.docs.length - 1;
     }
     renderWorkspace();
+  }
+
+  function getPaperDimensions(size) {
+    const s = String(size || '').toUpperCase();
+    if (s === 'A3') return { width: 841.89, height: 1190.55 };
+    if (s === 'LETTER') return { width: 612, height: 792 };
+    if (s === 'LEGAL') return { width: 612, height: 1008 };
+    return { width: 595.28, height: 841.89 };
   }
 
   function nupGridClass(pps, orientation) {
@@ -487,9 +502,14 @@
     const s = doc.settings;
 
     const sheet = document.createElement('div');
+    const isLandscape = s.orientation === 'landscape';
+    const paperDim = getPaperDimensions(s.paperSize);
+    const aspectW = isLandscape ? paperDim.height : paperDim.width;
+    const aspectH = isLandscape ? paperDim.width : paperDim.height;
+    sheet.style.aspectRatio = `${aspectW} / ${aspectH}`;
     sheet.className = [
       'preview-sheet',
-      s.orientation === 'landscape' ? 'sheet-landscape' : 'sheet-portrait',
+      isLandscape ? 'sheet-landscape' : 'sheet-portrait',
       s.color ? '' : 'is-bw',
       nupGridClass(s.pagesPerSheet, s.orientation),
     ]
@@ -587,6 +607,10 @@
 
     // Sync settings controls to active doc
     const s = doc.settings;
+    if (els.activeDocPaper) {
+      els.activeDocPaper.textContent = s.paperSize || 'A4';
+    }
+    renderPaperSizeSelector(doc);
     els.copiesVal.textContent = String(s.copies);
     els.btnBw.classList.toggle('active', !s.color);
     els.btnColor.classList.toggle('active', s.color);
@@ -619,6 +643,41 @@
     els.totalCostLabel.textContent = formatInr(grandPaise);
     els.payBtn.disabled = false;
     els.payBtn.textContent = `Proceed To Pay`;
+  }
+
+  function renderPaperSizeSelector(doc) {
+    if (!els.paperSizeGroup) return;
+    const sizes =
+      state.supportedPaperSizes && state.supportedPaperSizes.length > 0
+        ? state.supportedPaperSizes
+        : ['A4'];
+
+    if (!doc.settings.paperSize || !sizes.includes(doc.settings.paperSize)) {
+      doc.settings.paperSize = sizes[0];
+    }
+
+    els.paperSizeGroup.style.gridTemplateColumns = `repeat(${Math.max(1, sizes.length)}, minmax(0, 1fr))`;
+    els.paperSizeGroup.innerHTML = '';
+
+    sizes.forEach((size) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const isSelected = doc.settings.paperSize === size;
+      btn.className = 'seg-btn' + (isSelected ? ' active' : '');
+      btn.dataset.size = size;
+      btn.textContent = size;
+      btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+
+      if (sizes.length > 1) {
+        btn.addEventListener('click', () => {
+          if (doc.settings.paperSize !== size) {
+            doc.settings.paperSize = size;
+            renderWorkspace();
+          }
+        });
+      }
+      els.paperSizeGroup.appendChild(btn);
+    });
   }
 
   // =========================================================================
@@ -694,6 +753,15 @@
       }
       const data = await res.json();
       state.pricing = data.pricing;
+      const sizes = data.supportedPaperSizes || data.supported_paper_sizes;
+      if (Array.isArray(sizes) && sizes.length > 0) {
+        state.supportedPaperSizes = sizes;
+      } else {
+        state.supportedPaperSizes = ['A4'];
+      }
+      if (els.paperSizesEmpty) {
+        els.paperSizesEmpty.textContent = state.supportedPaperSizes.join(', ');
+      }
       els.shopName.textContent = data.pricing.shopName || `Kiosk ${machineId}`;
       els.bwRateEmpty.textContent = formatInr(data.pricing.bwPerPagePaise);
       els.colorRateEmpty.textContent = formatInr(data.pricing.colorPerPagePaise);
@@ -1071,6 +1139,7 @@
     try {
       const form = new FormData();
       form.append('machine_id', machineId);
+      form.append('paper_size', state.docs[0]?.settings?.paperSize || 'A4');
       form.append(
         'per_file_settings',
         JSON.stringify(state.docs.map((d) => d.settings))
