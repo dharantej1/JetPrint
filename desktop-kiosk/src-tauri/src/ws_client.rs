@@ -104,12 +104,19 @@ enum OutgoingWsMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         auth_token: Option<String>,
         pricing: PricingPayload,
+        supported_paper_sizes: Vec<String>,
+        #[serde(rename = "supportedPaperSizes")]
+        supported_paper_sizes_camel: Vec<String>,
     },
     PricingUpdate {
         #[serde(rename = "bwPerPagePaise")]
         bw_per_page_paise: i64,
         #[serde(rename = "colorPerPagePaise")]
         color_per_page_paise: i64,
+        #[serde(rename = "supportedPaperSizes")]
+        supported_paper_sizes: Vec<String>,
+        #[serde(rename = "supported_paper_sizes")]
+        supported_paper_sizes_snake: Vec<String>,
     },
     JobAck {
         job_id: String,
@@ -236,6 +243,8 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                             bw_per_page_paise: config.bw_price_paise,
                             color_per_page_paise: config.color_price_paise,
                         },
+                        supported_paper_sizes: config.supported_paper_sizes.clone(),
+                        supported_paper_sizes_camel: config.supported_paper_sizes.clone(),
                     };
                     if let Ok(json) = serde_json::to_string(&auth_msg) {
                         if write.send(Message::Text(json.into())).await.is_err() {
@@ -256,6 +265,8 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                     let pricing_msg = OutgoingWsMessage::PricingUpdate {
                         bw_per_page_paise: config.bw_price_paise,
                         color_per_page_paise: config.color_price_paise,
+                        supported_paper_sizes: config.supported_paper_sizes.clone(),
+                        supported_paper_sizes_snake: config.supported_paper_sizes.clone(),
                     };
                     if let Ok(json) = serde_json::to_string(&pricing_msg) {
                         let _ = write.send(Message::Text(json.into())).await;
@@ -589,7 +600,8 @@ mod tests {
                     "duplex": "2-sided",
                     "orientation": "landscape",
                     "pagesPerSheet": 2,
-                    "pageRange": "1-3"
+                    "pageRange": "1-3",
+                    "paperSize": "A3"
                 }
             }],
             "created_at": "2026-11-12T07:00:00Z"
@@ -617,9 +629,39 @@ mod tests {
                 assert_eq!(s.orientation, "landscape");
                 assert_eq!(s.pages_per_sheet, 2);
                 assert_eq!(s.page_range, "1-3");
+                assert_eq!(s.paper_size.as_deref(), Some("A3"));
             }
             _ => panic!("expected JobDispatch"),
         }
+    }
+
+    #[test]
+    fn serializes_auth_and_pricing_with_supported_paper_sizes() {
+        let auth_msg = OutgoingWsMessage::Auth {
+            machine_id: "m-123".to_string(),
+            auth_token: Some("tok-1".to_string()),
+            pricing: PricingPayload {
+                bw_per_page_paise: 200,
+                color_per_page_paise: 1000,
+            },
+            supported_paper_sizes: vec!["A4".to_string(), "Letter".to_string()],
+            supported_paper_sizes_camel: vec!["A4".to_string(), "Letter".to_string()],
+        };
+        let auth_val: serde_json::Value = serde_json::to_value(&auth_msg).expect("serialize auth");
+        assert_eq!(auth_val["type"], "auth");
+        assert_eq!(auth_val["supported_paper_sizes"], serde_json::json!(["A4", "Letter"]));
+        assert_eq!(auth_val["supportedPaperSizes"], serde_json::json!(["A4", "Letter"]));
+
+        let pricing_msg = OutgoingWsMessage::PricingUpdate {
+            bw_per_page_paise: 300,
+            color_per_page_paise: 1200,
+            supported_paper_sizes: vec!["A4".to_string(), "A3".to_string()],
+            supported_paper_sizes_snake: vec!["A4".to_string(), "A3".to_string()],
+        };
+        let pricing_val: serde_json::Value = serde_json::to_value(&pricing_msg).expect("serialize pricing");
+        assert_eq!(pricing_val["type"], "pricing_update");
+        assert_eq!(pricing_val["supportedPaperSizes"], serde_json::json!(["A4", "A3"]));
+        assert_eq!(pricing_val["supported_paper_sizes"], serde_json::json!(["A4", "A3"]));
     }
 
     #[test]

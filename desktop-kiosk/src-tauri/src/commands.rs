@@ -73,6 +73,7 @@ fn to_kiosk_state(cfg: AppConfig, state: &AppState) -> KioskState {
         bw_price_paise: cfg.bw_price_paise,
         color_price_paise: cfg.color_price_paise,
         default_printer: cfg.default_printer,
+        supported_paper_sizes: cfg.supported_paper_sizes,
         kiosk_mode: cfg.kiosk_mode,
         setup_complete: cfg.setup_complete,
         relay_connected,
@@ -169,6 +170,7 @@ pub fn update_settings(
         state.relay.trigger_reconnect();
     } else if updated.bw_price_paise != prev.bw_price_paise
         || updated.color_price_paise != prev.color_price_paise
+        || updated.supported_paper_sizes != prev.supported_paper_sizes
     {
         state.relay.trigger_reconnect();
     }
@@ -222,6 +224,7 @@ pub fn verify_otp_and_print(
         &job.files,
         job.copies,
         job.color,
+        Some(&cfg.supported_paper_sizes),
     ) {
         let _ = db.update_job_status(&job.id, JobStatus::Failed);
         state.relay.send_job_status(&job.id, "failed", Some(&err));
@@ -302,6 +305,7 @@ pub fn connect_relay(
             bw_price_paise: None,
             color_price_paise: None,
             default_printer: None,
+            supported_paper_sizes: None,
             kiosk_mode: None,
         })?
     } else {

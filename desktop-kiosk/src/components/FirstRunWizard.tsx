@@ -54,6 +54,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
   const [defaultPrinter, setDefaultPrinter] = useState<string>(
     initialState.defaultPrinter ?? ""
   );
+  const [supportedPaperSizes, setSupportedPaperSizes] = useState<string[]>(
+    initialState.supportedPaperSizes && initialState.supportedPaperSizes.length > 0
+      ? initialState.supportedPaperSizes
+      : ["A4"]
+  );
   const [bwRupees, setBwRupees] = useState<string>(
     (initialState.bwPricePaise / 100).toFixed(2)
   );
@@ -228,6 +233,17 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
     }
   };
 
+  const togglePaperSize = (size: string) => {
+    setSupportedPaperSizes((prev) => {
+      if (prev.includes(size)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((s) => s !== size);
+      } else {
+        return [...prev, size];
+      }
+    });
+  };
+
   const handleSaveConfigAndFinish = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -244,6 +260,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
     try {
       let nextState = await updateSettings({
         defaultPrinter: defaultPrinter || undefined,
+        supportedPaperSizes,
         bwPricePaise: bwPaise,
         colorPricePaise: colorPaise,
         relayUrl: trimmedRelay || undefined,
@@ -563,6 +580,44 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Supported Paper Sizes</label>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                {["A4", "A3", "Legal", "Letter"].map((size) => {
+                  const isChecked = supportedPaperSizes.includes(size);
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      className={`paper-size-chip ${isChecked ? "active" : ""}`}
+                      onClick={() => togglePaperSize(size)}
+                      style={{
+                        padding: "7px 12px",
+                        borderRadius: "8px",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        border: isChecked
+                          ? "1px solid #6366f1"
+                          : "1px solid rgba(148, 163, 184, 0.2)",
+                        background: isChecked
+                          ? "#6366f1"
+                          : "rgba(15, 23, 42, 0.6)",
+                        color: isChecked ? "#ffffff" : "#94a3b8",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <span>{size}</span>
+                      {isChecked && <Check size={14} />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="form-row">

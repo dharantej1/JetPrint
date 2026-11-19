@@ -23,8 +23,9 @@ pub fn build_file_print_properties(
     file: &JobFile,
     default_copies: u32,
     default_color: bool,
+    supported_paper_sizes: Option<&[String]>,
 ) -> Vec<(&'static str, String)> {
-    let (copies, color, duplex, orientation, pages_per_sheet, page_range, print_ready) =
+    let (copies, color, duplex, orientation, pages_per_sheet, page_range, print_ready, paper_size) =
         match &file.settings {
             Some(s) => (
                 s.copies.max(1),
@@ -34,6 +35,7 @@ pub fn build_file_print_properties(
                 s.pages_per_sheet.max(1),
                 s.page_range.trim(),
                 s.print_ready,
+                s.paper_size.as_deref().map(str::trim).filter(|s| !s.is_empty()),
             ),
             None => (
                 default_copies.max(1),
@@ -43,8 +45,18 @@ pub fn build_file_print_properties(
                 1,
                 "all",
                 false,
+                None,
             ),
         };
+
+    let chosen_paper_size = paper_size
+        .or_else(|| {
+            supported_paper_sizes
+                .and_then(|sizes| sizes.first())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or("A4");
 
     let is_landscape = orientation.eq_ignore_ascii_case("landscape");
 
@@ -74,6 +86,9 @@ pub fn build_file_print_properties(
         ("fit-to-page", "true".to_string()),
         ("fitplot", "true".to_string()),
         ("print-scaling", "fit".to_string()),
+        ("job-sheets", "none,none".to_string()),
+        ("media", chosen_paper_size.to_string()),
+        ("PageSize", chosen_paper_size.to_string()),
     ];
 
     if is_landscape {
@@ -98,6 +113,7 @@ pub fn print_job_files(
     files: &[JobFile],
     copies: u32,
     color: bool,
+    supported_paper_sizes: Option<&[String]>,
 ) -> Result<(), String> {
     if files.is_empty() {
         return Err("Print job has no files".to_string());
@@ -119,7 +135,8 @@ pub fn print_job_files(
             ));
         }
 
-        let owned_props = build_file_print_properties(file, copies, color);
+        let owned_props =
+            build_file_print_properties(file, copies, color, supported_paper_sizes);
         let raw_properties: Vec<(&str, &str)> = owned_props
             .iter()
             .map(|(k, v)| (*k, v.as_str()))
@@ -160,10 +177,11 @@ mod tests {
                 pages_per_sheet: 4,
                 page_range: "1-4,6".to_string(),
                 print_ready: false,
+                paper_size: Some("A3".to_string()),
             }),
         };
 
-        let props = build_file_print_properties(&file_with_settings, 1, false);
+        let props = build_file_print_properties(&file_with_settings, 1, false, None);
         assert!(props.contains(&("copies", "3".to_string())));
         assert!(props.contains(&("ColorModel", "Color".to_string())));
         assert!(props.contains(&("sides", "two-sided-short-edge".to_string())));
@@ -172,6 +190,8 @@ mod tests {
         assert!(props.contains(&("fit-to-page", "true".to_string())));
         assert!(props.contains(&("fitplot", "true".to_string())));
         assert!(props.contains(&("print-scaling", "fit".to_string())));
+        assert!(props.contains(&("media", "A3".to_string())));
+        assert!(props.contains(&("PageSize", "A3".to_string())));
         assert!(props.contains(&("number-up", "4".to_string())));
         assert!(props.contains(&("page-ranges", "1-4,6".to_string())));
 
@@ -183,17 +203,25 @@ mod tests {
             pages: 2,
             settings: None,
         };
-        let fallback_props = build_file_print_properties(&file_without_settings, 2, false);
+        let supported = vec!["Letter".to_string(), "Legal".to_string()];
+        let fallback_props = build_file_print_properties(&file_without_settings, 2, false, Some(&supported));
         assert!(fallback_props.contains(&("copies", "2".to_string())));
         assert!(fallback_props.contains(&("ColorModel", "Monochrome".to_string())));
         assert!(fallback_props.contains(&("sides", "one-sided".to_string())));
         assert!(fallback_props.contains(&("orientation-requested", "3".to_string())));
+        assert!(fallback_props.contains(&("media", "Letter".to_string())));
+        assert!(fallback_props.contains(&("PageSize", "Letter".to_string())));
         assert!(!fallback_props.contains(&("landscape", "true".to_string())));
         assert!(fallback_props.contains(&("fit-to-page", "true".to_string())));
         assert!(fallback_props.contains(&("fitplot", "true".to_string())));
         assert!(fallback_props.contains(&("print-scaling", "fit".to_string())));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "number-up"));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "page-ranges"));
+
+        // Fallback when supported list is empty or None -> A4
+        let default_a4_props = build_file_print_properties(&file_without_settings, 1, false, None);
+        assert!(default_a4_props.contains(&("media", "A4".to_string())));
+        assert!(default_a4_props.contains(&("PageSize", "A4".to_string())));
     }
 
     #[test]
@@ -212,10 +240,13 @@ mod tests {
                 pages_per_sheet: 2,
                 page_range: "all".to_string(),
                 print_ready: true,
+                paper_size: Some("Legal".to_string()),
             }),
         };
-        let props = build_file_print_properties(&file, 1, false);
+        let props = build_file_print_properties(&file, 1, false, None);
         assert!(props.contains(&("orientation-requested", "3".to_string())));
+        assert!(props.contains(&("media", "Legal".to_string())));
+        assert!(props.contains(&("PageSize", "Legal".to_string())));
         assert!(!props.iter().any(|(k, _)| *k == "number-up"));
         assert!(!props.iter().any(|(k, _)| *k == "page-ranges"));
     }

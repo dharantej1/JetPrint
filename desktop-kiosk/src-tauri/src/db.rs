@@ -78,6 +78,7 @@ impl Database {
                 bw_price_paise INTEGER NOT NULL DEFAULT 200,
                 color_price_paise INTEGER NOT NULL DEFAULT 1000,
                 default_printer TEXT,
+                supported_paper_sizes TEXT NOT NULL DEFAULT '["A4"]',
                 kiosk_mode TEXT NOT NULL DEFAULT 'self_service' CHECK (kiosk_mode IN ('self_service', 'owner')),
                 setup_complete INTEGER NOT NULL DEFAULT 0,
                 exe_fingerprint TEXT
@@ -100,17 +101,34 @@ impl Database {
         )
         .map_err(|e| format!("Failed to initialize SQLite schema: {e}"))?;
 
-        let has_exe_fingerprint: bool = conn
+        let (has_exe_fingerprint, has_paper_sizes): (bool, bool) = conn
             .prepare("PRAGMA table_info(app_config)")
             .and_then(|mut stmt| {
                 let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-                Ok(rows.filter_map(Result::ok).any(|name| name == "exe_fingerprint"))
+                let mut found_exe = false;
+                let mut found_paper = false;
+                for col in rows.flatten() {
+                    if col == "exe_fingerprint" {
+                        found_exe = true;
+                    } else if col == "supported_paper_sizes" {
+                        found_paper = true;
+                    }
+                }
+                Ok((found_exe, found_paper))
             })
             .map_err(|e| format!("Failed to inspect app_config columns: {e}"))?;
 
         if !has_exe_fingerprint {
             conn.execute("ALTER TABLE app_config ADD COLUMN exe_fingerprint TEXT", [])
                 .map_err(|e| format!("Failed to migrate app_config.exe_fingerprint: {e}"))?;
+        }
+
+        if !has_paper_sizes {
+            conn.execute(
+                "ALTER TABLE app_config ADD COLUMN supported_paper_sizes TEXT NOT NULL DEFAULT '[\"A4\"]'",
+                [],
+            )
+            .map_err(|e| format!("Failed to migrate app_config.supported_paper_sizes: {e}"))?;
         }
 
         let existing: Option<String> = conn
@@ -126,8 +144,8 @@ impl Database {
             conn.execute(
                 r#"
                 INSERT INTO app_config (
-                    id, machine_id, relay_url, bw_price_paise, color_price_paise, kiosk_mode, setup_complete
-                ) VALUES (1, ?1, ?2, 200, 1000, 'self_service', 0)
+                    id, machine_id, relay_url, bw_price_paise, color_price_paise, supported_paper_sizes, kiosk_mode, setup_complete
+                ) VALUES (1, ?1, ?2, 200, 1000, '["A4"]', 'self_service', 0)
                 "#,
                 params![machine_id, default_relay],
             )
@@ -143,13 +161,18 @@ impl Database {
             r#"
             SELECT machine_id, relay_url, auth_token, password_hash, recovery_phrase_hash,
                    bw_price_paise, color_price_paise, default_printer, kiosk_mode, setup_complete,
-                   exe_fingerprint
+                   exe_fingerprint, supported_paper_sizes
             FROM app_config WHERE id = 1
             "#,
             [],
             |row| {
                 let mode_str: String = row.get(8)?;
                 let setup_int: i64 = row.get(9)?;
+                let paper_sizes_raw: Option<String> = row.get(11)?;
+                let supported_paper_sizes = paper_sizes_raw
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+                    .filter(|list| !list.is_empty())
+                    .unwrap_or_else(crate::models::default_supported_paper_sizes);
                 Ok(AppConfig {
                     machine_id: row.get(0)?,
                     relay_url: row.get(1)?,
@@ -159,6 +182,7 @@ impl Database {
                     bw_price_paise: row.get(5)?,
                     color_price_paise: row.get(6)?,
                     default_printer: row.get(7)?,
+                    supported_paper_sizes,
                     kiosk_mode: KioskMode::from_str(&mode_str),
                     setup_complete: setup_int != 0,
                     exe_fingerprint: row.get(10)?,
@@ -285,6 +309,7 @@ impl Database {
                     bw_price_paise = 200,
                     color_price_paise = 1000,
                     default_printer = NULL,
+                    supported_paper_sizes = '["A4"]',
                     kiosk_mode = 'self_service',
                     setup_complete = 0,
                     exe_fingerprint = ?2
@@ -318,6 +343,12 @@ impl Database {
             None => current.default_printer,
         };
         let kiosk_mode = input.kiosk_mode.clone().unwrap_or(current.kiosk_mode);
+        let supported_paper_sizes = match &input.supported_paper_sizes {
+            Some(sizes) if !sizes.is_empty() => sizes.clone(),
+            _ => current.supported_paper_sizes,
+        };
+        let supported_paper_sizes_json = serde_json::to_string(&supported_paper_sizes)
+            .unwrap_or_else(|_| "[\"A4\"]".to_string());
         let auth_token = if relay_url != current.relay_url {
             None
         } else {
@@ -334,7 +365,8 @@ impl Database {
                     bw_price_paise = ?3,
                     color_price_paise = ?4,
                     default_printer = ?5,
-                    kiosk_mode = ?6
+                    kiosk_mode = ?6,
+                    supported_paper_sizes = ?7
                 WHERE id = 1
                 "#,
                 params![
@@ -344,6 +376,7 @@ impl Database {
                     color_price_paise,
                     default_printer,
                     kiosk_mode.as_str(),
+                    supported_paper_sizes_json,
                 ],
             )
             .map_err(|e| format!("Failed to update settings: {e}"))?;
@@ -551,6 +584,7 @@ mod tests {
                 bw_price_paise: Some(300),
                 color_price_paise: Some(1500),
                 default_printer: Some("HP LaserJet".to_string()),
+                supported_paper_sizes: None,
                 kiosk_mode: Some(KioskMode::Owner),
             })
             .expect("update_settings");
@@ -558,6 +592,7 @@ mod tests {
         assert_eq!(settings.bw_price_paise, 300);
         assert_eq!(settings.color_price_paise, 1500);
         assert_eq!(settings.default_printer.as_deref(), Some("HP LaserJet"));
+        assert_eq!(settings.supported_paper_sizes, vec!["A4".to_string()]);
         assert_eq!(settings.kiosk_mode, KioskMode::Owner);
     }
 
@@ -572,6 +607,7 @@ mod tests {
                 bw_price_paise: None,
                 color_price_paise: None,
                 default_printer: None,
+                supported_paper_sizes: None,
                 kiosk_mode: None,
             })
             .expect("update_settings");
@@ -588,6 +624,7 @@ mod tests {
             bw_price_paise: None,
             color_price_paise: None,
             default_printer: None,
+            supported_paper_sizes: None,
             kiosk_mode: None,
         })
         .expect("set relay_url");
@@ -599,12 +636,41 @@ mod tests {
                 bw_price_paise: Some(250),
                 color_price_paise: None,
                 default_printer: None,
+                supported_paper_sizes: None,
                 kiosk_mode: None,
             })
             .expect("update_settings same relay");
 
         assert_eq!(updated.bw_price_paise, 250);
         assert_eq!(updated.auth_token.as_deref(), Some("tok_keep"));
+    }
+
+    #[test]
+    fn persists_and_updates_supported_paper_sizes() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let initial = db.get_config().expect("initial config");
+        assert_eq!(initial.supported_paper_sizes, vec!["A4".to_string()]);
+
+        let updated = db
+            .update_settings(&UpdateSettingsInput {
+                relay_url: None,
+                bw_price_paise: None,
+                color_price_paise: None,
+                default_printer: None,
+                supported_paper_sizes: Some(vec!["A4".to_string(), "Letter".to_string(), "Legal".to_string()]),
+                kiosk_mode: None,
+            })
+            .expect("update supported_paper_sizes");
+        assert_eq!(
+            updated.supported_paper_sizes,
+            vec!["A4".to_string(), "Letter".to_string(), "Legal".to_string()]
+        );
+
+        let reloaded = db.get_config().expect("reloaded config");
+        assert_eq!(
+            reloaded.supported_paper_sizes,
+            vec!["A4".to_string(), "Letter".to_string(), "Legal".to_string()]
+        );
     }
 
     #[test]
@@ -717,6 +783,7 @@ mod tests {
             bw_price_paise: Some(500),
             color_price_paise: Some(2000),
             default_printer: Some("Canon".to_string()),
+            supported_paper_sizes: None,
             kiosk_mode: Some(KioskMode::Owner),
         })
         .expect("update_settings");

@@ -58,6 +58,10 @@ impl JobStatus {
     }
 }
 
+pub fn default_supported_paper_sizes() -> Vec<String> {
+    vec!["A4".to_string()]
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub machine_id: String,
@@ -68,10 +72,13 @@ pub struct AppConfig {
     pub bw_price_paise: i64,
     pub color_price_paise: i64,
     pub default_printer: Option<String>,
+    pub supported_paper_sizes: Vec<String>,
     pub kiosk_mode: KioskMode,
     pub setup_complete: bool,
     pub exe_fingerprint: Option<String>,
 }
+
+pub type KioskConfig = AppConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +98,7 @@ pub struct KioskState {
     pub bw_price_paise: i64,
     pub color_price_paise: i64,
     pub default_printer: Option<String>,
+    pub supported_paper_sizes: Vec<String>,
     pub kiosk_mode: KioskMode,
     pub setup_complete: bool,
     pub relay_connected: bool,
@@ -116,6 +124,7 @@ pub struct UpdateSettingsInput {
     pub bw_price_paise: Option<i64>,
     pub color_price_paise: Option<i64>,
     pub default_printer: Option<String>,
+    pub supported_paper_sizes: Option<Vec<String>>,
     pub kiosk_mode: Option<KioskMode>,
 }
 
@@ -146,6 +155,8 @@ pub struct FilePrintSettings {
     pub page_range: String,
     #[serde(default)]
     pub print_ready: bool,
+    #[serde(default, alias = "paper_size")]
+    pub paper_size: Option<String>,
 }
 
 fn default_copies() -> u32 {
@@ -178,6 +189,7 @@ impl Default for FilePrintSettings {
             pages_per_sheet: default_pages_per_sheet(),
             page_range: default_page_range(),
             print_ready: false,
+            paper_size: None,
         }
     }
 }

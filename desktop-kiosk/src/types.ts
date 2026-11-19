@@ -9,6 +9,7 @@ export interface KioskState {
   bwPricePaise: number;
   colorPricePaise: number;
   defaultPrinter: string | null;
+  supportedPaperSizes: string[];
   kioskMode: KioskMode;
   setupComplete: boolean;
   relayConnected: boolean;
@@ -30,6 +31,7 @@ export interface UpdateSettingsInput {
   bwPricePaise?: number;
   colorPricePaise?: number;
   defaultPrinter?: string;
+  supportedPaperSizes?: string[];
   kioskMode?: KioskMode;
 }
 
@@ -41,12 +43,24 @@ export interface PrinterInfo {
   state: string;
 }
 
+export interface FilePrintSettings {
+  copies: number;
+  color: boolean;
+  duplex: string;
+  orientation: string;
+  pagesPerSheet: number;
+  pageRange: string;
+  printReady: boolean;
+  paperSize?: string;
+}
+
 export interface JobFile {
   fileId: string;
   filename: string;
   mimeType: string;
   localPath: string;
   pages: number;
+  settings?: FilePrintSettings;
 }
 
 export interface PrintJob {

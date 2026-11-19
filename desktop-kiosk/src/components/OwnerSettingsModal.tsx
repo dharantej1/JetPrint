@@ -102,6 +102,22 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   const [defaultPrinter, setDefaultPrinter] = useState<string>(
     kioskState.defaultPrinter ?? ""
   );
+  const [supportedPaperSizes, setSupportedPaperSizes] = useState<string[]>(
+    kioskState.supportedPaperSizes && kioskState.supportedPaperSizes.length > 0
+      ? kioskState.supportedPaperSizes
+      : ["A4"]
+  );
+
+  const togglePaperSize = (size: string) => {
+    setSupportedPaperSizes((prev) => {
+      if (prev.includes(size)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((s) => s !== size);
+      } else {
+        return [...prev, size];
+      }
+    });
+  };
   const [bwRupees, setBwRupees] = useState<string>(
     (kioskState.bwPricePaise / 100).toFixed(2)
   );
@@ -275,6 +291,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
     try {
       let updated = await updateSettings({
         defaultPrinter: defaultPrinter || undefined,
+        supportedPaperSizes,
         bwPricePaise: bwPaise,
         colorPricePaise: colorPaise,
         kioskMode,
@@ -674,6 +691,44 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Supported Paper Sizes</label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                  {["A4", "A3", "Legal", "Letter"].map((size) => {
+                    const isChecked = supportedPaperSizes.includes(size);
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        className={`paper-size-chip ${isChecked ? "active" : ""}`}
+                        onClick={() => togglePaperSize(size)}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: "8px",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          border: isChecked
+                            ? "1px solid #6366f1"
+                            : "1px solid rgba(148, 163, 184, 0.2)",
+                          background: isChecked
+                            ? "#6366f1"
+                            : "rgba(15, 23, 42, 0.6)",
+                          color: isChecked ? "#ffffff" : "#94a3b8",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <span>{size}</span>
+                        {isChecked && <CheckCircle2 size={14} />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="form-row">

@@ -32,6 +32,7 @@ const FALLBACK_STATE: KioskState = {
   bwPricePaise: 200,
   colorPricePaise: 1000,
   defaultPrinter: null,
+  supportedPaperSizes: ["A4"],
   kioskMode: "self_service",
   setupComplete: true,
   relayConnected: false,
