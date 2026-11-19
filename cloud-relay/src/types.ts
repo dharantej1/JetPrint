@@ -32,6 +32,7 @@ export interface FilePrintSettings {
   orientation: OrientationMode;
   pagesPerSheet: PagesPerSheet;
   pageRange: string;
+  printReady?: boolean;
 }
 
 export interface JobFileRecord {

@@ -618,6 +618,14 @@ textarea:focus {
   justify-content: center;
   z-index: 50;
   padding: 20px;
+  transition: padding 0.2s cubic-bezier(0.16, 1, 0.3, 1), align-items 0.2s ease;
+}
+
+.modal-overlay.has-vk {
+  align-items: flex-start;
+  padding-top: 14px;
+  padding-bottom: 300px;
+  overflow-y: auto;
 }
 
 .modal-card {
@@ -633,6 +641,27 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  transition: max-height 0.2s cubic-bezier(0.16, 1, 0.3, 1), padding 0.2s ease;
+}
+
+.modal-overlay.has-vk .modal-card {
+  max-height: calc(100vh - 305px);
+  max-height: calc(100dvh - 305px);
+  padding-bottom: 40px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+@media (max-height: 720px) {
+  .modal-overlay.has-vk {
+    padding-top: 8px;
+    padding-bottom: 270px;
+  }
+  .modal-overlay.has-vk .modal-card {
+    max-height: calc(100vh - 275px);
+    max-height: calc(100dvh - 275px);
+    padding: 16px 20px 32px 20px;
+    gap: 14px;
+  }
 }
 
 .modal-card.wide {
@@ -1534,6 +1563,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
   margin-bottom: 4px;
@@ -1546,6 +1576,67 @@ textarea:focus {
   font-size: 13px;
   font-weight: 600;
   color: var(--accent-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vk-live-preview {
+  flex: 1;
+  max-width: 520px;
+  display: flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+  min-height: 28px;
+  overflow: hidden;
+}
+
+.vk-live-value-wrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.vk-live-value-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.vk-live-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+  letter-spacing: 0.5px;
+}
+
+.vk-live-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: var(--accent-primary);
+  margin-left: 2px;
+  animation: vkBlink 1s infinite;
+}
+
+@keyframes vkBlink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.vk-live-placeholder {
+  color: #64748b;
+  font-size: 12px;
+  font-style: italic;
+  font-family: inherit;
 }
 
 .vk-header-actions {

@@ -144,6 +144,8 @@ pub struct FilePrintSettings {
     pub pages_per_sheet: u32,
     #[serde(default = "default_page_range")]
     pub page_range: String,
+    #[serde(default)]
+    pub print_ready: bool,
 }
 
 fn default_copies() -> u32 {
@@ -175,6 +177,7 @@ impl Default for FilePrintSettings {
             orientation: default_orientation(),
             pages_per_sheet: default_pages_per_sheet(),
             page_range: default_page_range(),
+            print_ready: false,
         }
     }
 }

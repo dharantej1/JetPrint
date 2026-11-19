@@ -589,4 +589,97 @@ describe('JetPrint Cloud Relay', () => {
       await fs.rm(customUploadDir, { recursive: true, force: true });
     }
   });
+
+  it('pre-renders print-ready PDF with exact orientation and 2-on-1 layout', async () => {
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'nup-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const reg = await nextMessage<{ type: string; auth_token: string }>(ws);
+
+    // Create a 2-page test PDF (landscape pages like Aadhaar card)
+    const srcDoc = await PDFDocument.create();
+    srcDoc.addPage([500, 320]).drawText('Front of Card');
+    srcDoc.addPage([500, 320]).drawText('Back of Card');
+    const aadhaarPdf = Buffer.from(await srcDoc.save());
+
+    const form = new FormData();
+    form.append('machine_id', 'nup-kiosk');
+    form.append(
+      'per_file_settings',
+      JSON.stringify([
+        {
+          copies: 1,
+          color: false,
+          duplex: '1-sided',
+          orientation: 'portrait',
+          pagesPerSheet: 2,
+          pageRange: 'all',
+        },
+      ])
+    );
+    form.append(
+      'files',
+      new Blob([new Uint8Array(aadhaarPdf)], { type: 'application/pdf' }),
+      'Aadhaar.pdf'
+    );
+
+    const uploadRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    expect(uploadRes.status).toBe(201);
+    const job = (await uploadRes.json()) as {
+      job_id: string;
+      total_pages: number;
+      files: Array<{ file_id: string; page_count: number; billable_sheets: number }>;
+    };
+
+    expect(job.total_pages).toBe(1);
+    expect(job.files[0].page_count).toBe(2);
+    expect(job.files[0].billable_sheets).toBe(1);
+
+    const dispatchPromise = nextMessage<{
+      type: string;
+      files: Array<{ file_id: string; settings: { orientation: string; pagesPerSheet: number; printReady: boolean } }>;
+    }>(ws);
+
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job.job_id}/pay`, {
+      method: 'POST',
+    });
+    expect(payRes.status).toBe(200);
+
+    const dispatch = await dispatchPromise;
+    expect(dispatch.type).toBe('job_dispatch');
+    expect(dispatch.files[0].settings.orientation).toBe('portrait');
+    expect(dispatch.files[0].settings.pagesPerSheet).toBe(2);
+    expect(dispatch.files[0].settings.printReady).toBe(true);
+
+    // Kiosk downloads the file
+    const downloadRes = await fetch(
+      `${baseUrl}/api/jobs/${job.job_id}/files/${job.files[0].file_id}`,
+      {
+        headers: {
+          authorization: `Bearer ${reg.auth_token}`,
+        },
+      }
+    );
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get('content-type')).toContain('application/pdf');
+
+    const downloadedPdfBytes = await downloadRes.arrayBuffer();
+    const downloadedDoc = await PDFDocument.load(downloadedPdfBytes);
+
+    // Crucial assertions: exactly 1 physical sheet, A4 portrait dimensions!
+    expect(downloadedDoc.getPageCount()).toBe(1);
+    const size = downloadedDoc.getPage(0).getSize();
+    expect(Math.round(size.width)).toBe(595); // A4 portrait width
+    expect(Math.round(size.height)).toBe(842); // A4 portrait height
+
+    ws.close();
+  });
 });

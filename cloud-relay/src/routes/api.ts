@@ -5,9 +5,11 @@ import express, { type Request, type Response, type Router } from 'express';
 import multer from 'multer';
 import type { RelayConfig } from '../config.js';
 import {
+  buildPrintReadyPdf,
   countSelectedPages,
   detectPageCount,
   isSupportedFile,
+  needsPrintReadyProcessing,
   normalizeFileSettings,
 } from '../pdf.js';
 import {
@@ -172,8 +174,6 @@ export function createApiRouter(
           const f = uploadedFiles[i];
           const fileId = `file_${crypto.randomBytes(4).toString('hex')}`;
           const safeName = path.basename(f.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
-          const storagePath = path.join(jobDir, `${fileId}_${safeName}`);
-          await fs.writeFile(storagePath, f.buffer);
 
           const pageCount = await detectPageCount(f.buffer, f.mimetype, f.originalname);
           const settings = normalizeFileSettings(perFileSettingsRaw[i], {
@@ -192,11 +192,31 @@ export function createApiRouter(
           totalPages += billableSheets;
           amountPaise += fileAmountPaise;
 
+          let printReadyBuffer: Buffer = f.buffer;
+          if (needsPrintReadyProcessing(settings, f.mimetype, f.originalname)) {
+            try {
+              printReadyBuffer = await buildPrintReadyPdf(
+                f.buffer,
+                f.mimetype,
+                f.originalname,
+                settings
+              );
+              settings.printReady = true;
+            } catch (err) {
+              console.error('Failed to generate print-ready PDF, falling back to original:', err);
+              printReadyBuffer = f.buffer;
+              settings.printReady = false;
+            }
+          }
+
+          const storagePath = path.join(jobDir, `${fileId}_${safeName}`);
+          await fs.writeFile(storagePath, printReadyBuffer);
+
           fileRecords.push({
             fileId,
             originalName: f.originalname,
-            mimeType: f.mimetype || 'application/octet-stream',
-            sizeBytes: f.size,
+            mimeType: settings.printReady ? 'application/pdf' : f.mimetype || 'application/octet-stream',
+            sizeBytes: printReadyBuffer.length,
             pageCount,
             selectedPages,
             billableSheets,

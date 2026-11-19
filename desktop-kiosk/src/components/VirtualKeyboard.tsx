@@ -85,8 +85,24 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
         <div className="vk-header">
           <div className="vk-header-title">
             <KeyboardIcon size={16} />
-            <span>{label ? `Typing: ${label}` : "Touch Keyboard"}</span>
+            <span>{label || "Touch Keyboard"}</span>
           </div>
+
+          <div className="vk-live-preview">
+            <div className="vk-live-value-wrap">
+              {value ? (
+                <span className="vk-live-value">
+                  {type === "password" ? "•".repeat(value.length) : value}
+                </span>
+              ) : (
+                <span className="vk-live-placeholder">
+                  Type {label ? label.toLowerCase() : "value"}...
+                </span>
+              )}
+              <span className="vk-live-cursor" />
+            </div>
+          </div>
+
           <div className="vk-header-actions">
             <button
               type="button"

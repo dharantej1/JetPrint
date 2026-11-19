@@ -113,6 +113,18 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
     }
   };
 
+  // Keep active virtual keyboard field visible above the keyboard
+  useEffect(() => {
+    if (!activeVk?.field) return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`[data-vk-field="${activeVk.field}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [activeVk?.field]);
+
   useEffect(() => {
     if (step !== 4) return;
     let active = true;
@@ -263,7 +275,14 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
           : "Printer, Pricing & Cloud Relay";
 
   return (
-    <div className="modal-overlay">
+    <div
+      className={`modal-overlay ${activeVk ? "has-vk" : ""}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && activeVk) {
+          setActiveVk(null);
+        }
+      }}
+    >
       <div className="modal-card">
         <div className="modal-header" style={{ flexDirection: "column", alignItems: "stretch", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -292,7 +311,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
 
             <div className="form-group">
               <label className="form-label">Admin Password</label>
-              <div className="input-with-vk">
+              <div className="input-with-vk" data-vk-field="password">
                 <input
                   type="password"
                   inputMode="text"
@@ -302,6 +321,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                   spellCheck={false}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "password") {
+                      setActiveVk({ label: "Admin Password", field: "password", type: "password" });
+                    }
+                  }}
                   placeholder="Minimum 6 characters"
                   autoFocus
                   required
@@ -326,7 +350,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
 
             <div className="form-group">
               <label className="form-label">Confirm Admin Password</label>
-              <div className="input-with-vk">
+              <div className="input-with-vk" data-vk-field="confirmPassword">
                 <input
                   type="password"
                   inputMode="text"
@@ -336,6 +360,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                   spellCheck={false}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "confirmPassword") {
+                      setActiveVk({ label: "Confirm Admin Password", field: "confirmPassword", type: "password" });
+                    }
+                  }}
                   placeholder="Re-enter password"
                   required
                 />
@@ -431,7 +460,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
             <div className="form-group">
               <label className="form-label">Target Storage Folder</label>
               <div style={{ display: "flex", gap: 8 }}>
-                <div className="input-with-vk" style={{ flex: 1 }}>
+                <div className="input-with-vk" data-vk-field="storageFolder" style={{ flex: 1 }}>
                   <input
                     type="text"
                     inputMode="text"
@@ -440,6 +469,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                     spellCheck={false}
                     value={storageFolder}
                     onChange={(e) => setStorageFolder(e.target.value)}
+                    onFocus={() => {
+                      if (activeVk?.field !== "storageFolder") {
+                        setActiveVk({ label: "Storage Folder", field: "storageFolder", type: "text" });
+                      }
+                    }}
                     placeholder="Default application data folder"
                     required
                   />
@@ -549,7 +583,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">B&amp;W Price (₹ / page)</label>
-                <div className="input-with-vk">
+                <div className="input-with-vk" data-vk-field="bwRupees">
                   <input
                     type="number"
                     inputMode="decimal"
@@ -557,6 +591,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                     min="0"
                     value={bwRupees}
                     onChange={(e) => setBwRupees(e.target.value)}
+                    onFocus={() => {
+                      if (activeVk?.field !== "bwRupees") {
+                        setActiveVk({ label: "B/W Price", field: "bwRupees", type: "number" });
+                      }
+                    }}
                   />
                   <button
                     type="button"
@@ -577,7 +616,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
               </div>
               <div className="form-group">
                 <label className="form-label">Color Price (₹ / page)</label>
-                <div className="input-with-vk">
+                <div className="input-with-vk" data-vk-field="colorRupees">
                   <input
                     type="number"
                     inputMode="decimal"
@@ -585,6 +624,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                     min="0"
                     value={colorRupees}
                     onChange={(e) => setColorRupees(e.target.value)}
+                    onFocus={() => {
+                      if (activeVk?.field !== "colorRupees") {
+                        setActiveVk({ label: "Color Price", field: "colorRupees", type: "number" });
+                      }
+                    }}
                   />
                   <button
                     type="button"
@@ -610,7 +654,7 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                 <Wifi size={14} color="#818cf8" />
                 <span>Cloud Relay URL</span>
               </label>
-              <div className="input-with-vk">
+              <div className="input-with-vk" data-vk-field="relayUrl">
                 <input
                   type="url"
                   inputMode="url"
@@ -619,6 +663,11 @@ export const FirstRunWizard: React.FC<FirstRunWizardProps> = ({
                   spellCheck={false}
                   value={relayUrl}
                   onChange={(e) => setRelayUrl(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "relayUrl") {
+                      setActiveVk({ label: "Cloud Relay URL", field: "relayUrl", type: "url" });
+                    }
+                  }}
                   placeholder="http://localhost:3000"
                 />
                 <button

@@ -24,7 +24,7 @@ pub fn build_file_print_properties(
     default_copies: u32,
     default_color: bool,
 ) -> Vec<(&'static str, String)> {
-    let (copies, color, duplex, orientation, pages_per_sheet, page_range) =
+    let (copies, color, duplex, orientation, pages_per_sheet, page_range, print_ready) =
         match &file.settings {
             Some(s) => (
                 s.copies.max(1),
@@ -33,6 +33,7 @@ pub fn build_file_print_properties(
                 s.orientation.as_str(),
                 s.pages_per_sheet.max(1),
                 s.page_range.trim(),
+                s.print_ready,
             ),
             None => (
                 default_copies.max(1),
@@ -41,8 +42,11 @@ pub fn build_file_print_properties(
                 "portrait",
                 1,
                 "all",
+                false,
             ),
         };
+
+    let is_landscape = orientation.eq_ignore_ascii_case("landscape");
 
     let mut props = vec![
         ("copies", copies.to_string()),
@@ -53,7 +57,11 @@ pub fn build_file_print_properties(
         (
             "sides",
             if duplex == "2-sided" {
-                "two-sided-long-edge"
+                if is_landscape {
+                    "two-sided-short-edge"
+                } else {
+                    "two-sided-long-edge"
+                }
             } else {
                 "one-sided"
             }
@@ -61,23 +69,24 @@ pub fn build_file_print_properties(
         ),
         (
             "orientation-requested",
-            if orientation.eq_ignore_ascii_case("landscape") {
-                "4"
-            } else {
-                "3"
-            }
-            .to_string(),
+            if is_landscape { "4" } else { "3" }.to_string(),
         ),
         ("fit-to-page", "true".to_string()),
         ("fitplot", "true".to_string()),
         ("print-scaling", "fit".to_string()),
     ];
 
-    if pages_per_sheet > 1 {
-        props.push(("number-up", pages_per_sheet.to_string()));
+    if is_landscape {
+        props.push(("landscape", "true".to_string()));
     }
-    if !page_range.is_empty() && !page_range.eq_ignore_ascii_case("all") {
-        props.push(("page-ranges", page_range.to_string()));
+
+    if !print_ready {
+        if pages_per_sheet > 1 {
+            props.push(("number-up", pages_per_sheet.to_string()));
+        }
+        if !page_range.is_empty() && !page_range.eq_ignore_ascii_case("all") {
+            props.push(("page-ranges", page_range.to_string()));
+        }
     }
 
     props
@@ -150,14 +159,16 @@ mod tests {
                 orientation: "landscape".to_string(),
                 pages_per_sheet: 4,
                 page_range: "1-4,6".to_string(),
+                print_ready: false,
             }),
         };
 
         let props = build_file_print_properties(&file_with_settings, 1, false);
         assert!(props.contains(&("copies", "3".to_string())));
         assert!(props.contains(&("ColorModel", "Color".to_string())));
-        assert!(props.contains(&("sides", "two-sided-long-edge".to_string())));
+        assert!(props.contains(&("sides", "two-sided-short-edge".to_string())));
         assert!(props.contains(&("orientation-requested", "4".to_string())));
+        assert!(props.contains(&("landscape", "true".to_string())));
         assert!(props.contains(&("fit-to-page", "true".to_string())));
         assert!(props.contains(&("fitplot", "true".to_string())));
         assert!(props.contains(&("print-scaling", "fit".to_string())));
@@ -177,10 +188,35 @@ mod tests {
         assert!(fallback_props.contains(&("ColorModel", "Monochrome".to_string())));
         assert!(fallback_props.contains(&("sides", "one-sided".to_string())));
         assert!(fallback_props.contains(&("orientation-requested", "3".to_string())));
+        assert!(!fallback_props.contains(&("landscape", "true".to_string())));
         assert!(fallback_props.contains(&("fit-to-page", "true".to_string())));
         assert!(fallback_props.contains(&("fitplot", "true".to_string())));
         assert!(fallback_props.contains(&("print-scaling", "fit".to_string())));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "number-up"));
         assert!(!fallback_props.iter().any(|(k, _)| *k == "page-ranges"));
+    }
+
+    #[test]
+    fn print_ready_skips_number_up_and_page_ranges() {
+        let file = JobFile {
+            file_id: "f3".to_string(),
+            filename: "precomposed.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/precomposed.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                copies: 1,
+                color: false,
+                duplex: "1-sided".to_string(),
+                orientation: "portrait".to_string(),
+                pages_per_sheet: 2,
+                page_range: "all".to_string(),
+                print_ready: true,
+            }),
+        };
+        let props = build_file_print_properties(&file, 1, false);
+        assert!(props.contains(&("orientation-requested", "3".to_string())));
+        assert!(!props.iter().any(|(k, _)| *k == "number-up"));
+        assert!(!props.iter().any(|(k, _)| *k == "page-ranges"));
     }
 }

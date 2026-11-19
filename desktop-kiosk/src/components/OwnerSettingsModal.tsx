@@ -205,6 +205,18 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
       .catch((err) => console.warn("Failed to load jobs:", err));
   }, [unlocked]);
 
+  // Keep active virtual keyboard field visible above the keyboard
+  useEffect(() => {
+    if (!activeVk?.field) return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`[data-vk-field="${activeVk.field}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [activeVk?.field]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
@@ -344,7 +356,18 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className={`modal-overlay ${activeVk ? "has-vk" : ""}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          if (activeVk) {
+            setActiveVk(null);
+          } else {
+            onClose();
+          }
+        }
+      }}
+    >
       <div
         className={`modal-card ${unlocked ? "wide" : ""}`}
         onClick={(e) => e.stopPropagation()}
@@ -369,7 +392,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div className="form-group">
               <label className="form-label">Owner Password</label>
-              <div className="input-with-vk">
+              <div className="input-with-vk" data-vk-field="password">
                 <input
                   type="password"
                   inputMode="text"
@@ -379,6 +402,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "password") {
+                      setActiveVk({ label: "Owner Password", field: "password", type: "password" });
+                    }
+                  }}
                   placeholder="Enter admin password"
                   autoFocus
                   required
@@ -427,7 +455,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
           <form onSubmit={handleResetPassword} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div className="form-group">
               <label className="form-label">12-Word BIP39 Recovery Phrase</label>
-              <div className="input-with-vk" style={{ alignItems: "flex-start" }}>
+              <div className="input-with-vk" data-vk-field="phrase" style={{ alignItems: "flex-start" }}>
                 <textarea
                   rows={3}
                   inputMode="text"
@@ -436,6 +464,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={phrase}
                   onChange={(e) => setPhrase(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "phrase") {
+                      setActiveVk({ label: "12-Word Phrase", field: "phrase", type: "text" });
+                    }
+                  }}
                   placeholder="word1 word2 word3 ... word12"
                   required
                 />
@@ -459,7 +492,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
 
             <div className="form-group">
               <label className="form-label">New Owner Password</label>
-              <div className="input-with-vk">
+              <div className="input-with-vk" data-vk-field="newPassword">
                 <input
                   type="password"
                   inputMode="text"
@@ -469,6 +502,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
+                  onFocus={() => {
+                    if (activeVk?.field !== "newPassword") {
+                      setActiveVk({ label: "New Password", field: "newPassword", type: "password" });
+                    }
+                  }}
                   placeholder="Minimum 6 characters"
                   required
                 />
@@ -656,7 +694,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">B/W Price per Page (₹)</label>
-                  <div className="input-with-vk">
+                  <div className="input-with-vk" data-vk-field="bwRupees">
                     <input
                       type="number"
                       inputMode="decimal"
@@ -664,6 +702,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       min="0"
                       value={bwRupees}
                       onChange={(e) => setBwRupees(e.target.value)}
+                      onFocus={() => {
+                        if (activeVk?.field !== "bwRupees") {
+                          setActiveVk({ label: "B/W Price", field: "bwRupees", type: "number" });
+                        }
+                      }}
                       required
                     />
                     <button
@@ -685,7 +728,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                 </div>
                 <div className="form-group">
                   <label className="form-label">Color Price per Page (₹)</label>
-                  <div className="input-with-vk">
+                  <div className="input-with-vk" data-vk-field="colorRupees">
                     <input
                       type="number"
                       inputMode="decimal"
@@ -693,6 +736,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       min="0"
                       value={colorRupees}
                       onChange={(e) => setColorRupees(e.target.value)}
+                      onFocus={() => {
+                        if (activeVk?.field !== "colorRupees") {
+                          setActiveVk({ label: "Color Price", field: "colorRupees", type: "number" });
+                        }
+                      }}
                       required
                     />
                     <button
@@ -717,7 +765,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
               <div className="form-group">
                 <label className="form-label">Cloud Relay URL</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <div className="input-with-vk" style={{ flex: 1 }}>
+                  <div className="input-with-vk" data-vk-field="relayUrl" style={{ flex: 1 }}>
                     <input
                       type="url"
                       inputMode="url"
@@ -726,6 +774,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       spellCheck={false}
                       value={relayUrl}
                       onChange={(e) => setRelayUrl(e.target.value)}
+                      onFocus={() => {
+                        if (activeVk?.field !== "relayUrl") {
+                          setActiveVk({ label: "Cloud Relay URL", field: "relayUrl", type: "url" });
+                        }
+                      }}
                       placeholder="https://relay.example.com"
                       required
                     />
@@ -793,7 +846,7 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
               <div className="form-group">
                 <label className="form-label">Storage Folder</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <div className="input-with-vk" style={{ flex: 1 }}>
+                  <div className="input-with-vk" data-vk-field="storageFolder" style={{ flex: 1 }}>
                     <input
                       type="text"
                       inputMode="text"
@@ -802,6 +855,11 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       spellCheck={false}
                       value={storageFolder}
                       onChange={(e) => setStorageFolder(e.target.value)}
+                      onFocus={() => {
+                        if (activeVk?.field !== "storageFolder") {
+                          setActiveVk({ label: "Storage Folder", field: "storageFolder", type: "text" });
+                        }
+                      }}
                       placeholder="Application data folder"
                     />
                     <button
