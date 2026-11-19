@@ -402,11 +402,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => {
-                    if (activeVk?.field !== "password") {
-                      setActiveVk({ label: "Owner Password", field: "password", type: "password" });
-                    }
-                  }}
                   placeholder="Enter admin password"
                   autoFocus
                   required
@@ -464,11 +459,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={phrase}
                   onChange={(e) => setPhrase(e.target.value)}
-                  onFocus={() => {
-                    if (activeVk?.field !== "phrase") {
-                      setActiveVk({ label: "12-Word Phrase", field: "phrase", type: "text" });
-                    }
-                  }}
                   placeholder="word1 word2 word3 ... word12"
                   required
                 />
@@ -502,11 +492,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                   spellCheck={false}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  onFocus={() => {
-                    if (activeVk?.field !== "newPassword") {
-                      setActiveVk({ label: "New Password", field: "newPassword", type: "password" });
-                    }
-                  }}
                   placeholder="Minimum 6 characters"
                   required
                 />
@@ -702,11 +687,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       min="0"
                       value={bwRupees}
                       onChange={(e) => setBwRupees(e.target.value)}
-                      onFocus={() => {
-                        if (activeVk?.field !== "bwRupees") {
-                          setActiveVk({ label: "B/W Price", field: "bwRupees", type: "number" });
-                        }
-                      }}
                       required
                     />
                     <button
@@ -736,11 +716,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       min="0"
                       value={colorRupees}
                       onChange={(e) => setColorRupees(e.target.value)}
-                      onFocus={() => {
-                        if (activeVk?.field !== "colorRupees") {
-                          setActiveVk({ label: "Color Price", field: "colorRupees", type: "number" });
-                        }
-                      }}
                       required
                     />
                     <button
@@ -774,11 +749,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       spellCheck={false}
                       value={relayUrl}
                       onChange={(e) => setRelayUrl(e.target.value)}
-                      onFocus={() => {
-                        if (activeVk?.field !== "relayUrl") {
-                          setActiveVk({ label: "Cloud Relay URL", field: "relayUrl", type: "url" });
-                        }
-                      }}
                       placeholder="https://relay.example.com"
                       required
                     />
@@ -855,11 +825,6 @@ export const OwnerSettingsModal: React.FC<OwnerSettingsModalProps> = ({
                       spellCheck={false}
                       value={storageFolder}
                       onChange={(e) => setStorageFolder(e.target.value)}
-                      onFocus={() => {
-                        if (activeVk?.field !== "storageFolder") {
-                          setActiveVk({ label: "Storage Folder", field: "storageFolder", type: "text" });
-                        }
-                      }}
                       placeholder="Application data folder"
                     />
                     <button
