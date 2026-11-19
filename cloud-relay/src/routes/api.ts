@@ -92,8 +92,9 @@ export function createApiRouter(
     });
   });
 
-  const sendKioskInfo = (machineId: string, res: Response) => {
-    const cleanId = String(machineId || '').trim();
+  const sendKioskInfo = (machineId: string | string[] | undefined, res: Response) => {
+    const rawId = Array.isArray(machineId) ? machineId[0] : machineId;
+    const cleanId = String(rawId || '').trim();
     if (!cleanId) {
       res.status(400).json({ error: 'machine_id is required' });
       return;
