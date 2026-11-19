@@ -46,7 +46,24 @@ export function createRelayServer(
 
   app.use(express.static(PUBLIC_DIR));
 
-  app.get('/upload', (_req, res) => {
+  app.get('/upload', (req, res) => {
+    if (req.accepts('html', 'json') === 'json') {
+      const machineId = String(req.query.machine_id || '').trim();
+      const kiosk = machineId ? store.getKiosk(machineId) : undefined;
+      const supportedPaperSizes =
+        kiosk?.supportedPaperSizes && kiosk.supportedPaperSizes.length > 0
+          ? kiosk.supportedPaperSizes
+          : ['A4'];
+      res.json({
+        machine_id: kiosk?.machineId ?? machineId,
+        online: kiosk?.online ?? false,
+        pricing: kiosk?.pricing ?? store.defaultPricing(),
+        dev_mode: config.devMode,
+        supportedPaperSizes,
+        supported_paper_sizes: supportedPaperSizes,
+      });
+      return;
+    }
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
   });
 

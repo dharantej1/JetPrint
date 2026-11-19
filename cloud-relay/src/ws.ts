@@ -108,23 +108,27 @@ export class KioskWsHub {
 
     switch (msg.type) {
       case 'register': {
-        const kiosk = this.store.registerKiosk(msg.machine_id, msg.pricing);
+        const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
+        const kiosk = this.store.registerKiosk(msg.machine_id, msg.pricing, supported);
         this.attachSocket(kiosk.machineId, ws);
         this.send(ws, {
           type: 'registered',
           machine_id: kiosk.machineId,
           auth_token: kiosk.authToken,
           pricing: kiosk.pricing,
+          supportedPaperSizes: kiosk.supportedPaperSizes,
         });
         this.flushPendingJobs(kiosk.machineId);
         break;
       }
 
       case 'auth': {
+        const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
         const result = this.store.authenticateKiosk(
           msg.machine_id,
           msg.auth_token,
-          msg.pricing
+          msg.pricing,
+          supported
         );
         if (!result.ok) {
           this.send(ws, {
@@ -140,6 +144,7 @@ export class KioskWsHub {
           machine_id: result.kiosk.machineId,
           auth_token: result.kiosk.authToken,
           pricing: result.kiosk.pricing,
+          supportedPaperSizes: result.kiosk.supportedPaperSizes,
         });
         this.flushPendingJobs(result.kiosk.machineId);
         break;
@@ -154,16 +159,39 @@ export class KioskWsHub {
           });
           return;
         }
-        const updated = this.store.updatePricing(ws.machineId, {
-          bwPerPagePaise: msg.bwPerPagePaise,
-          colorPerPagePaise: msg.colorPerPagePaise,
-          shopName: msg.shopName,
-        });
+        const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
+        const updated = this.store.updatePricing(
+          ws.machineId,
+          {
+            bwPerPagePaise: msg.bwPerPagePaise,
+            colorPerPagePaise: msg.colorPerPagePaise,
+            shopName: msg.shopName,
+          },
+          supported
+        );
         if (updated) {
           this.send(ws, {
             type: 'pricing_ack',
             pricing: updated.pricing,
+            supportedPaperSizes: updated.supportedPaperSizes,
           });
+        }
+        break;
+      }
+
+      case 'paper_sizes_update':
+      case 'config_update': {
+        if (!ws.machineId) {
+          this.send(ws, {
+            type: 'error',
+            code: 'UNAUTHENTICATED',
+            message: 'Authenticate or register before updating config',
+          });
+          return;
+        }
+        const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
+        if (Array.isArray(supported)) {
+          this.store.updateSupportedPaperSizes(ws.machineId, supported);
         }
         break;
       }

@@ -6,6 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createRelayServer, type RelayServerInstance } from '../src/app.js';
+import { normalizeFileSettings } from '../src/pdf.js';
 import { verifyRazorpayPaymentSignature } from '../src/razorpay.js';
 
 function connectWs(url: string): Promise<WebSocket> {
@@ -681,5 +682,259 @@ describe('JetPrint Cloud Relay', () => {
     expect(Math.round(size.height)).toBe(842); // A4 portrait height
 
     ws.close();
+  });
+
+  it('registers kiosk with configurable supported paper sizes and serves them via kiosk info', async () => {
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'paper-kiosk-1',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+        supportedPaperSizes: ['A4', 'A3', 'Legal', 'Letter'],
+      })
+    );
+    const reg = await nextMessage<{
+      type: string;
+      machine_id: string;
+      supportedPaperSizes?: string[];
+    }>(ws);
+
+    expect(reg.type).toBe('registered');
+    expect(reg.machine_id).toBe('paper-kiosk-1');
+    expect(reg.supportedPaperSizes).toEqual(['A4', 'A3', 'Legal', 'Letter']);
+
+    // Check kiosk info endpoint GET /api/machines/:machineId
+    const res = await fetch(`${baseUrl}/api/machines/paper-kiosk-1`);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { supportedPaperSizes: string[]; dev_mode: boolean };
+    expect(data.supportedPaperSizes).toEqual(['A4', 'A3', 'Legal', 'Letter']);
+
+    // Check kiosk info endpoint GET /api/upload?machine_id=paper-kiosk-1
+    const uploadInfoRes = await fetch(`${baseUrl}/api/upload?machine_id=paper-kiosk-1`);
+    expect(uploadInfoRes.status).toBe(200);
+    const uploadInfoData = (await uploadInfoRes.json()) as { supportedPaperSizes: string[] };
+    expect(uploadInfoData.supportedPaperSizes).toEqual(['A4', 'A3', 'Legal', 'Letter']);
+
+    // Check default when kiosk does not specify paper sizes
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'default-paper-kiosk',
+      })
+    );
+    const reg2 = await nextMessage<{
+      type: string;
+      machine_id: string;
+      supportedPaperSizes?: string[];
+    }>(ws);
+    expect(reg2.supportedPaperSizes).toEqual(['A4']);
+
+    const defaultRes = await fetch(`${baseUrl}/api/machines/default-paper-kiosk`);
+    const defaultData = (await defaultRes.json()) as { supportedPaperSizes: string[] };
+    expect(defaultData.supportedPaperSizes).toEqual(['A4']);
+
+    ws.close();
+  });
+
+  it('normalizes and validates paperSize in normalizeFileSettings', () => {
+    const fallback = { copies: 1, color: false, paperSize: 'A4' };
+
+    // Standard cases
+    expect(normalizeFileSettings({ paperSize: 'A4' }, fallback).paperSize).toBe('A4');
+    expect(normalizeFileSettings({ paperSize: 'a4' }, fallback).paperSize).toBe('A4');
+    expect(normalizeFileSettings({ paperSize: 'A3' }, fallback).paperSize).toBe('A3');
+    expect(normalizeFileSettings({ paperSize: 'Letter' }, fallback).paperSize).toBe('Letter');
+    expect(normalizeFileSettings({ paperSize: 'letter' }, fallback).paperSize).toBe('Letter');
+    expect(normalizeFileSettings({ paperSize: 'Legal' }, fallback).paperSize).toBe('Legal');
+    expect(normalizeFileSettings({ paperSize: 'legal' }, fallback).paperSize).toBe('Legal');
+
+    // Snake case fallback
+    expect(normalizeFileSettings({ paper_size: 'letter' } as any, fallback).paperSize).toBe('Letter');
+
+    // Missing / empty defaults to fallback or 'A4'
+    expect(normalizeFileSettings({}, fallback).paperSize).toBe('A4');
+    expect(normalizeFileSettings({ paperSize: '' }, fallback).paperSize).toBe('A4');
+    expect(normalizeFileSettings({}, { copies: 1, color: false, paperSize: 'Letter' }).paperSize).toBe('Letter');
+  });
+
+  it('builds print-ready PDF with Letter, Legal, and A3 paper dimensions', async () => {
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'multi-paper-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+        supported_paper_sizes: ['A4', 'Letter', 'Legal', 'A3'],
+      })
+    );
+    const reg = await nextMessage<{ type: string; auth_token: string }>(ws);
+
+    const testPdf = await makeTestPdf(1);
+
+    // Test Letter paper size (612 x 792)
+    const formLetter = new FormData();
+    formLetter.append('machine_id', 'multi-paper-kiosk');
+    formLetter.append(
+      'per_file_settings',
+      JSON.stringify([
+        {
+          copies: 1,
+          color: false,
+          duplex: '1-sided',
+          orientation: 'portrait',
+          pagesPerSheet: 1,
+          pageRange: 'all',
+          paperSize: 'Letter',
+        },
+      ])
+    );
+    formLetter.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'letter-doc.pdf'
+    );
+
+    const letterUpload = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: formLetter,
+    });
+    expect(letterUpload.status).toBe(201);
+    const letterJob = (await letterUpload.json()) as {
+      job_id: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    };
+    expect(letterJob.files[0].settings.paperSize).toBe('Letter');
+
+    const dispatchLetterPromise = nextMessage<{
+      type: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    }>(ws);
+
+    await fetch(`${baseUrl}/api/dev/jobs/${letterJob.job_id}/pay`, { method: 'POST' });
+    const dispatchLetter = await dispatchLetterPromise;
+    expect(dispatchLetter.files[0].settings.paperSize).toBe('Letter');
+
+    const dlLetterRes = await fetch(
+      `${baseUrl}/api/jobs/${letterJob.job_id}/files/${letterJob.files[0].file_id}`,
+      { headers: { authorization: `Bearer ${reg.auth_token}` } }
+    );
+    const dlLetterDoc = await PDFDocument.load(await dlLetterRes.arrayBuffer());
+    const letterSize = dlLetterDoc.getPage(0).getSize();
+    expect(Math.round(letterSize.width)).toBe(612);
+    expect(Math.round(letterSize.height)).toBe(792);
+
+    // Test Legal landscape (swapping width and height: 1008 x 612)
+    const formLegal = new FormData();
+    formLegal.append('machine_id', 'multi-paper-kiosk');
+    formLegal.append(
+      'per_file_settings',
+      JSON.stringify([
+        {
+          copies: 1,
+          color: false,
+          duplex: '1-sided',
+          orientation: 'landscape',
+          pagesPerSheet: 1,
+          pageRange: 'all',
+          paperSize: 'Legal',
+        },
+      ])
+    );
+    formLegal.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'legal-landscape.pdf'
+    );
+
+    const legalUpload = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: formLegal,
+    });
+    expect(legalUpload.status).toBe(201);
+    const legalJob = (await legalUpload.json()) as {
+      job_id: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    };
+
+    const dispatchLegalPromise = nextMessage<{
+      type: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    }>(ws);
+
+    await fetch(`${baseUrl}/api/dev/jobs/${legalJob.job_id}/pay`, { method: 'POST' });
+    const dispatchLegal = await dispatchLegalPromise;
+    expect(dispatchLegal.files[0].settings.paperSize).toBe('Legal');
+
+    const dlLegalRes = await fetch(
+      `${baseUrl}/api/jobs/${legalJob.job_id}/files/${legalJob.files[0].file_id}`,
+      { headers: { authorization: `Bearer ${reg.auth_token}` } }
+    );
+    const dlLegalDoc = await PDFDocument.load(await dlLegalRes.arrayBuffer());
+    const legalSize = dlLegalDoc.getPage(0).getSize();
+    expect(Math.round(legalSize.width)).toBe(1008); // Legal landscape width
+    expect(Math.round(legalSize.height)).toBe(612); // Legal landscape height
+
+    // Test A3 portrait (842 x 1191)
+    const formA3 = new FormData();
+    formA3.append('machine_id', 'multi-paper-kiosk');
+    formA3.append(
+      'per_file_settings',
+      JSON.stringify([
+        {
+          copies: 1,
+          color: false,
+          duplex: '1-sided',
+          orientation: 'portrait',
+          pagesPerSheet: 1,
+          pageRange: 'all',
+          paperSize: 'A3',
+        },
+      ])
+    );
+    formA3.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'a3-doc.pdf'
+    );
+
+    const a3Upload = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: formA3,
+    });
+    expect(a3Upload.status).toBe(201);
+    const a3Job = (await a3Upload.json()) as {
+      job_id: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    };
+
+    const dispatchA3Promise = nextMessage<{
+      type: string;
+      files: Array<{ file_id: string; settings: { paperSize?: string } }>;
+    }>(ws);
+
+    await fetch(`${baseUrl}/api/dev/jobs/${a3Job.job_id}/pay`, { method: 'POST' });
+    const dispatchA3 = await dispatchA3Promise;
+    expect(dispatchA3.files[0].settings.paperSize).toBe('A3');
+
+    const dlA3Res = await fetch(
+      `${baseUrl}/api/jobs/${a3Job.job_id}/files/${a3Job.files[0].file_id}`,
+      { headers: { authorization: `Bearer ${reg.auth_token}` } }
+    );
+    const dlA3Doc = await PDFDocument.load(await dlA3Res.arrayBuffer());
+    const a3Size = dlA3Doc.getPage(0).getSize();
+    expect(Math.round(a3Size.width)).toBe(842); // A3 portrait width
+    expect(Math.round(a3Size.height)).toBe(1191); // A3 portrait height
+
+    ws.close();
+  });
+
+  it('serves mobile UI with paper size selector and available sizes', async () => {
+    const res = await fetch(`${baseUrl}/upload`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('paperSizeContainer');
+    expect(html).toContain('paperSizeGroup');
+    expect(html).toContain('paperSizesEmpty');
   });
 });

@@ -50,6 +50,16 @@ export class RelayStore {
     };
   }
 
+  private normalizePaperSizes(sizes?: string[]): string[] {
+    if (!sizes || !Array.isArray(sizes) || sizes.length === 0) {
+      return ['A4'];
+    }
+    const clean = sizes
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter((s) => s.length > 0);
+    return clean.length > 0 ? clean : ['A4'];
+  }
+
   defaultPricing(): PricingConfig {
     return {
       bwPerPagePaise: this.config.defaultBwPricePaise,
@@ -59,7 +69,8 @@ export class RelayStore {
 
   registerKiosk(
     preferredMachineId?: string,
-    pricingPatch?: Partial<PricingConfig>
+    pricingPatch?: Partial<PricingConfig>,
+    supportedPaperSizes?: string[]
   ): KioskRecord {
     const cleanPreferred = preferredMachineId?.trim();
     let machineId: string;
@@ -77,6 +88,10 @@ export class RelayStore {
 
     const now = Date.now();
     const existing = this.kiosks.get(machineId);
+    const paperSizes = supportedPaperSizes
+      ? this.normalizePaperSizes(supportedPaperSizes)
+      : existing?.supportedPaperSizes ?? ['A4'];
+
     const record: KioskRecord = {
       machineId,
       authToken: `tok_${crypto.randomBytes(24).toString('hex')}`,
@@ -84,6 +99,7 @@ export class RelayStore {
       online: true,
       lastSeenAt: now,
       createdAt: existing?.createdAt ?? now,
+      supportedPaperSizes: paperSizes,
     };
     this.kiosks.set(machineId, record);
     return record;
@@ -92,7 +108,8 @@ export class RelayStore {
   authenticateKiosk(
     machineId: string,
     authToken?: string,
-    pricingPatch?: Partial<PricingConfig>
+    pricingPatch?: Partial<PricingConfig>,
+    supportedPaperSizes?: string[]
   ):
     | { ok: true; kiosk: KioskRecord; newlyRegistered: boolean }
     | { ok: false; reason: string } {
@@ -114,6 +131,7 @@ export class RelayStore {
         online: true,
         lastSeenAt: now,
         createdAt: now,
+        supportedPaperSizes: this.normalizePaperSizes(supportedPaperSizes),
       };
       this.kiosks.set(cleanId, record);
       return { ok: true, kiosk: record, newlyRegistered: true };
@@ -127,6 +145,9 @@ export class RelayStore {
         if (pricingPatch) {
           existing.pricing = this.mergePricing(existing.pricing, pricingPatch);
         }
+        if (supportedPaperSizes) {
+          existing.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
+        }
         return { ok: true, kiosk: existing, newlyRegistered: true };
       }
       return { ok: false, reason: 'Invalid auth_token for machine_id' };
@@ -137,16 +158,34 @@ export class RelayStore {
     if (pricingPatch) {
       existing.pricing = this.mergePricing(existing.pricing, pricingPatch);
     }
+    if (supportedPaperSizes) {
+      existing.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
+    }
     return { ok: true, kiosk: existing, newlyRegistered: false };
   }
 
   updatePricing(
     machineId: string,
-    pricingPatch: Partial<PricingConfig>
+    pricingPatch: Partial<PricingConfig>,
+    supportedPaperSizes?: string[]
   ): KioskRecord | undefined {
     const kiosk = this.kiosks.get(machineId);
     if (!kiosk) return undefined;
     kiosk.pricing = this.mergePricing(kiosk.pricing, pricingPatch);
+    if (supportedPaperSizes) {
+      kiosk.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
+    }
+    kiosk.lastSeenAt = Date.now();
+    return kiosk;
+  }
+
+  updateSupportedPaperSizes(
+    machineId: string,
+    sizes: string[]
+  ): KioskRecord | undefined {
+    const kiosk = this.kiosks.get(machineId);
+    if (!kiosk) return undefined;
+    kiosk.supportedPaperSizes = this.normalizePaperSizes(sizes);
     kiosk.lastSeenAt = Date.now();
     return kiosk;
   }

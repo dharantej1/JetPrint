@@ -11,7 +11,10 @@ import {
   isSupportedFile,
   needsPrintReadyProcessing,
   normalizeFileSettings,
+  normalizePaperSize,
 } from '../pdf.js';
+
+export { normalizeFileSettings, normalizePaperSize };
 import {
   createPaymentOrder,
   verifyRazorpayPaymentSignature,
@@ -89,19 +92,46 @@ export function createApiRouter(
     });
   });
 
-  router.get('/machines/:machineId', (req: Request, res: Response) => {
-    const machineId = String(req.params.machineId || '');
-    const kiosk = store.getKiosk(machineId);
+  const sendKioskInfo = (machineId: string, res: Response) => {
+    const cleanId = String(machineId || '').trim();
+    if (!cleanId) {
+      res.status(400).json({ error: 'machine_id is required' });
+      return;
+    }
+    const kiosk = store.getKiosk(cleanId);
     if (!kiosk) {
       res.status(404).json({ error: 'Machine not found' });
       return;
     }
+    const supportedPaperSizes =
+      kiosk.supportedPaperSizes && kiosk.supportedPaperSizes.length > 0
+        ? kiosk.supportedPaperSizes
+        : ['A4'];
     res.json({
       machine_id: kiosk.machineId,
       online: kiosk.online,
       pricing: kiosk.pricing,
       dev_mode: config.devMode,
+      supportedPaperSizes,
+      supported_paper_sizes: supportedPaperSizes,
     });
+  };
+
+  router.get('/machines/:machineId', (req: Request, res: Response) => {
+    sendKioskInfo(req.params.machineId, res);
+  });
+
+  router.get('/machines/:machineId/info', (req: Request, res: Response) => {
+    sendKioskInfo(req.params.machineId, res);
+  });
+
+  router.get('/kiosk/:machineId', (req: Request, res: Response) => {
+    sendKioskInfo(req.params.machineId, res);
+  });
+
+  router.get('/upload', (req: Request, res: Response) => {
+    const machineId = String(req.query.machine_id || '');
+    sendKioskInfo(machineId, res);
   });
 
   router.post(
@@ -145,6 +175,11 @@ export function createApiRouter(
           req.body?.color === true ||
           req.body?.color === 'true' ||
           req.body?.color === '1';
+        const rawPaper = req.body?.paper_size ?? req.body?.paperSize;
+        const fallbackPaperSize =
+          typeof rawPaper === 'string' && rawPaper.trim()
+            ? normalizePaperSize(rawPaper)
+            : kiosk.supportedPaperSizes?.[0] || 'A4';
 
         let perFileSettingsRaw: Array<Partial<FilePrintSettings>> = [];
         if (typeof req.body?.per_file_settings === 'string' && req.body.per_file_settings.trim()) {
@@ -179,6 +214,7 @@ export function createApiRouter(
           const settings = normalizeFileSettings(perFileSettingsRaw[i], {
             copies,
             color,
+            paperSize: fallbackPaperSize,
           });
           const selectedPages = countSelectedPages(settings.pageRange, pageCount);
           const sheetsPerCopy = Math.ceil(selectedPages / settings.pagesPerSheet);
@@ -260,6 +296,8 @@ export function createApiRouter(
           total_pages: totalPages,
           print_settings: job.printSettings,
           pricing: job.pricingSnapshot,
+          supportedPaperSizes: kiosk.supportedPaperSizes ?? ['A4'],
+          supported_paper_sizes: kiosk.supportedPaperSizes ?? ['A4'],
           files: job.files.map((f) => ({
             file_id: f.fileId,
             filename: f.originalName,
