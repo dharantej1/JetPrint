@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "jetprint-kiosk"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "argon2",
  "bip39",
