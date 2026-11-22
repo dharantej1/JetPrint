@@ -6,7 +6,13 @@ import { PDFDocument } from 'pdf-lib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createRelayServer, type RelayServerInstance } from '../src/app.js';
-import { normalizeFileSettings } from '../src/pdf.js';
+import {
+  buildPrintReadyPdf,
+  checkPdfNeedsNormalization,
+  exifOrientationToDegrees,
+  getJpegExifOrientation,
+  normalizeFileSettings,
+} from '../src/pdf.js';
 import { verifyRazorpayPaymentSignature } from '../src/razorpay.js';
 
 function connectWs(url: string): Promise<WebSocket> {
@@ -936,5 +942,61 @@ describe('JetPrint Cloud Relay', () => {
     expect(html).toContain('paperSizeContainer');
     expect(html).toContain('paperSizeGroup');
     expect(html).toContain('paperSizesEmpty');
+  });
+
+  it('correctly extracts and parses JPEG EXIF orientation metadata', () => {
+    const headerExif6 = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe1, 0x00, 0x22,
+      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+      0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+      0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+      0x06, 0x00, 0x00, 0x00,
+    ]);
+    expect(getJpegExifOrientation(headerExif6)).toBe(6);
+    expect(exifOrientationToDegrees(6)).toBe(270);
+    expect(exifOrientationToDegrees(8)).toBe(90);
+    expect(exifOrientationToDegrees(3)).toBe(180);
+    expect(exifOrientationToDegrees(1)).toBe(0);
+
+    const nonJpeg = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    expect(getJpegExifOrientation(nonJpeg)).toBe(1);
+  });
+
+  it('detects orientation mismatches in PDFs that require print-ready normalization', async () => {
+    // Landscape PDF (300 x 200)
+    const landscapeDoc = await PDFDocument.create();
+    landscapeDoc.addPage([300, 200]);
+    const landscapeBuf = Buffer.from(await landscapeDoc.save());
+
+    // When requested orientation is portrait, landscape PDF has mismatch
+    const portraitSettings = normalizeFileSettings(
+      { orientation: 'portrait', pagesPerSheet: 1, paperSize: 'A4', pageRange: 'all' },
+      { copies: 1, color: false }
+    );
+    const needsNorm = await checkPdfNeedsNormalization(landscapeBuf, 'application/pdf', 'slides.pdf', portraitSettings);
+    expect(needsNorm).toBe(true);
+
+    // After pre-rendering with buildPrintReadyPdf into A4 portrait, sheet becomes A4 portrait
+    const printReady = await buildPrintReadyPdf(landscapeBuf, 'application/pdf', 'slides.pdf', portraitSettings);
+    const resultDoc = await PDFDocument.load(printReady);
+    const page0 = resultDoc.getPage(0).getSize();
+    expect(Math.round(page0.width)).toBe(595); // A4 portrait width
+    expect(Math.round(page0.height)).toBe(842); // A4 portrait height
+  });
+
+  it('builds print-ready PDF with landscape orientation dimensions', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([595, 842]);
+    const portraitBuf = Buffer.from(await doc.save());
+
+    const landscapeSettings = normalizeFileSettings(
+      { orientation: 'landscape', pagesPerSheet: 1, paperSize: 'A4', pageRange: 'all' },
+      { copies: 1, color: false }
+    );
+    const printReady = await buildPrintReadyPdf(portraitBuf, 'application/pdf', 'doc.pdf', landscapeSettings);
+    const resultDoc = await PDFDocument.load(printReady);
+    const page0 = resultDoc.getPage(0).getSize();
+    expect(Math.round(page0.width)).toBe(842); // A4 landscape width
+    expect(Math.round(page0.height)).toBe(595); // A4 landscape height
   });
 });

@@ -26,6 +26,7 @@ pub fn reset_round_robin_counters() {
     *guard = Some(HashMap::new());
 }
 
+
 /// Routes a job file to the appropriate printer based on color and paper size requirements,
 /// matching to printer pools with round-robin load balancing and graceful fallback.
 pub fn route_file_to_printer(
@@ -137,6 +138,29 @@ pub fn route_file_to_printer(
 
     // 6. Fallback to any enabled printer
     enabled.first().map(|p| p.name.clone())
+}
+
+/// Checks whether a job file is a PDF (by extension, MIME type, print_ready flag, or magic bytes).
+pub fn is_pdf_file(file: &JobFile) -> bool {
+    if file.filename.to_lowercase().ends_with(".pdf")
+        || file.local_path.to_lowercase().ends_with(".pdf")
+    {
+        return true;
+    }
+    if file.mime_type.eq_ignore_ascii_case("application/pdf") {
+        return true;
+    }
+    if file.settings.as_ref().map(|s| s.print_ready).unwrap_or(false) {
+        return true;
+    }
+    if let Ok(mut f) = std::fs::File::open(&file.local_path) {
+        use std::io::Read;
+        let mut magic = [0u8; 4];
+        if f.read_exact(&mut magic).is_ok() && &magic == b"%PDF" {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(target_os = "macos")]
@@ -291,7 +315,7 @@ pub fn print_job_files_pooled(
         };
 
         #[cfg(target_os = "macos")]
-        let mac_printed = if file.filename.to_lowercase().ends_with(".pdf") {
+        let mac_printed = if is_pdf_file(file) {
             let is_duplex = file.settings.as_ref().map(|s| s.duplex.as_str()) == Some("2-sided");
             let is_landscape = file
                 .settings
@@ -474,10 +498,6 @@ pub fn build_file_print_properties(
             }
             .to_string(),
         ),
-        (
-            "orientation-requested",
-            if is_landscape { "4" } else { "3" }.to_string(),
-        ),
         ("fit-to-page", "true".to_string()),
         ("fitplot", "true".to_string()),
         ("print-scaling", "fit".to_string()),
@@ -490,17 +510,21 @@ pub fn build_file_print_properties(
         ("media-source", "auto".to_string()),
     ];
 
-    if is_landscape {
-        props.push(("landscape", "true".to_string()));
-    }
-
     if !print_ready {
+        if is_landscape {
+            props.push(("orientation-requested", "4".to_string()));
+            props.push(("landscape", "true".to_string()));
+        } else {
+            props.push(("orientation-requested", "3".to_string()));
+        }
         if pages_per_sheet > 1 {
             props.push(("number-up", pages_per_sheet.to_string()));
         }
         if !page_range.is_empty() && !page_range.eq_ignore_ascii_case("all") {
             props.push(("page-ranges", page_range.to_string()));
         }
+    } else {
+        props.push(("orientation-requested", "3".to_string()));
     }
 
     props
@@ -548,7 +572,7 @@ pub fn print_job_files(
         };
 
         #[cfg(target_os = "macos")]
-        let mac_printed = if file.filename.to_lowercase().ends_with(".pdf") {
+        let mac_printed = if is_pdf_file(file) {
             let is_duplex = file.settings.as_ref().map(|s| s.duplex.as_str()) == Some("2-sided");
             let is_landscape = file
                 .settings
@@ -680,6 +704,28 @@ mod tests {
         assert!(props.contains(&("PageSize", "Legal".to_string())));
         assert!(!props.iter().any(|(k, _)| *k == "number-up"));
         assert!(!props.iter().any(|(k, _)| *k == "page-ranges"));
+
+        let landscape_print_ready = JobFile {
+            file_id: "f4".to_string(),
+            filename: "landscape_precomposed.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/landscape_precomposed.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                copies: 1,
+                color: false,
+                duplex: "1-sided".to_string(),
+                orientation: "landscape".to_string(),
+                pages_per_sheet: 1,
+                page_range: "all".to_string(),
+                print_ready: true,
+                paper_size: Some("A4".to_string()),
+            }),
+            assigned_printer: None,
+        };
+        let l_props = build_file_print_properties(&landscape_print_ready, 1, false, None);
+        assert!(l_props.contains(&("orientation-requested", "3".to_string())));
+        assert!(!l_props.contains(&("landscape", "true".to_string())));
     }
 
     #[test]
@@ -819,5 +865,55 @@ mod tests {
         // Empty returns None
         assert!(resolve_printer_with_alias_handling("").is_none());
         assert!(resolve_printer_with_alias_handling("   ").is_none());
+    }
+
+    #[test]
+    fn detects_pdf_files_across_mime_types_and_extensions() {
+        let pdf_by_ext = JobFile {
+            file_id: "f1".to_string(),
+            filename: "doc.pdf".to_string(),
+            mime_type: "application/octet-stream".to_string(),
+            local_path: "/tmp/nonexistent.pdf".to_string(),
+            pages: 1,
+            settings: None,
+            assigned_printer: None,
+        };
+        assert!(is_pdf_file(&pdf_by_ext));
+
+        let pdf_by_mime = JobFile {
+            file_id: "f2".to_string(),
+            filename: "photo.jpg".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/nonexistent.jpg".to_string(),
+            pages: 1,
+            settings: None,
+            assigned_printer: None,
+        };
+        assert!(is_pdf_file(&pdf_by_mime));
+
+        let pdf_by_print_ready = JobFile {
+            file_id: "f3".to_string(),
+            filename: "scan.png".to_string(),
+            mime_type: "image/png".to_string(),
+            local_path: "/tmp/nonexistent.png".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                print_ready: true,
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+        assert!(is_pdf_file(&pdf_by_print_ready));
+
+        let non_pdf = JobFile {
+            file_id: "f4".to_string(),
+            filename: "notes.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            local_path: "/tmp/nonexistent.txt".to_string(),
+            pages: 1,
+            settings: None,
+            assigned_printer: None,
+        };
+        assert!(!is_pdf_file(&non_pdf));
     }
 }

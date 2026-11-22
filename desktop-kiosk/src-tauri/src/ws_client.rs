@@ -518,7 +518,14 @@ async fn handle_ws_text(
                 };
 
                 let safe_name = sanitize_filename(&f.filename);
-                let dest: PathBuf = job_dir.join(format!("{}_{}", f.file_id, safe_name));
+                let is_pdf = f.mime_type.eq_ignore_ascii_case("application/pdf")
+                    || f.settings.as_ref().map(|s| s.print_ready).unwrap_or(false)
+                    || bytes.starts_with(b"%PDF");
+                let dest: PathBuf = if is_pdf && !safe_name.to_lowercase().ends_with(".pdf") {
+                    job_dir.join(format!("{}_{}.pdf", f.file_id, safe_name))
+                } else {
+                    job_dir.join(format!("{}_{}", f.file_id, safe_name))
+                };
                 if tokio::fs::write(&dest, &bytes).await.is_err() {
                     return WsTextAction::None;
                 }
@@ -526,7 +533,11 @@ async fn handle_ws_text(
                 downloaded_files.push(JobFile {
                     file_id: f.file_id,
                     filename: f.filename,
-                    mime_type: f.mime_type,
+                    mime_type: if is_pdf {
+                        "application/pdf".to_string()
+                    } else {
+                        f.mime_type
+                    },
                     local_path: dest.to_string_lossy().to_string(),
                     pages: f.page_count,
                     settings: f.settings,

@@ -70,7 +70,7 @@ int macos_print_pdf(
         
         NSPrintOperation *op = [doc printOperationForPrintInfo:printInfo 
                                                    scalingMode:kPDFPrintPageScaleToFit 
-                                                    autoRotate:YES];
+                                                    autoRotate:NO];
         if (!op) {
             return -4;
         }

@@ -410,7 +410,21 @@
     const objectUrl = URL.createObjectURL(file);
 
     if (!isPdf) {
-      return { pageCount: 1, pdfDoc: null, objectUrl };
+      let isLandscape = false;
+      try {
+        const img = new Image();
+        img.src = objectUrl;
+        await new Promise((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        });
+        if (img.naturalWidth > img.naturalHeight) {
+          isLandscape = true;
+        }
+      } catch {
+        // ignore
+      }
+      return { pageCount: 1, pdfDoc: null, objectUrl, isLandscape };
     }
 
     if (window.pdfjsLib) {
@@ -419,7 +433,17 @@
           'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         const buf = await file.arrayBuffer();
         const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
-        return { pageCount: pdfDoc.numPages || 1, pdfDoc, objectUrl };
+        let isLandscape = false;
+        try {
+          const page = await pdfDoc.getPage(1);
+          const vp = page.getViewport({ scale: 1 });
+          if (vp.width > vp.height) {
+            isLandscape = true;
+          }
+        } catch {
+          // ignore
+        }
+        return { pageCount: pdfDoc.numPages || 1, pdfDoc, objectUrl, isLandscape };
       } catch {
         // fallback below
       }
@@ -464,7 +488,7 @@
           copies: 1,
           color: false,
           duplex: '1-sided',
-          orientation: 'portrait',
+          orientation: meta.isLandscape ? 'landscape' : 'portrait',
           pagesPerSheet: 1,
           pageRange: 'all',
           paperSize: (state.supportedPaperSizes && state.supportedPaperSizes[0]) || 'A4',

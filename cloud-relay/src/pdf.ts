@@ -48,6 +48,98 @@ export async function detectPageCount(
   return 1;
 }
 
+export function getJpegExifOrientation(buffer: Buffer): number {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    return 1;
+  }
+  let offset = 2;
+  while (offset + 4 < buffer.length) {
+    if (buffer[offset] !== 0xff) break;
+    const marker = buffer[offset + 1];
+    if (marker === 0xda || marker === 0xd9) break; // SOS or EOI
+    const length = buffer.readUInt16BE(offset + 2);
+    if (marker === 0xe1) {
+      if (
+        offset + 4 + 6 <= buffer.length &&
+        buffer.toString('ascii', offset + 4, offset + 8) === 'Exif' &&
+        buffer[offset + 8] === 0x00 &&
+        buffer[offset + 9] === 0x00
+      ) {
+        const tiffHeader = offset + 10;
+        const isLittle = buffer.readUInt16BE(tiffHeader) === 0x4949;
+        const isBig = buffer.readUInt16BE(tiffHeader) === 0x4d4d;
+        if (!isLittle && !isBig) return 1;
+        const get16 = (o: number) =>
+          isLittle ? buffer.readUInt16LE(o) : buffer.readUInt16BE(o);
+        const get32 = (o: number) =>
+          isLittle ? buffer.readUInt32LE(o) : buffer.readUInt32BE(o);
+        if (get16(tiffHeader + 2) !== 0x002a) return 1;
+        const firstIfdOffset = get32(tiffHeader + 4);
+        let ifdOffset = tiffHeader + firstIfdOffset;
+        if (ifdOffset + 2 > buffer.length) return 1;
+        const numEntries = get16(ifdOffset);
+        ifdOffset += 2;
+        for (let i = 0; i < numEntries && ifdOffset + 12 <= buffer.length; i++, ifdOffset += 12) {
+          const tag = get16(ifdOffset);
+          if (tag === 0x0112) {
+            return get16(ifdOffset + 8);
+          }
+        }
+      }
+      break;
+    }
+    offset += 2 + length;
+  }
+  return 1;
+}
+
+export function exifOrientationToDegrees(orientation: number): number {
+  switch (orientation) {
+    case 3:
+      return 180;
+    case 6:
+      // 90 deg clockwise in screen coords corresponds to 270 deg in PDF coords
+      return 270;
+    case 8:
+      // 270 deg clockwise in screen coords corresponds to 90 deg in PDF coords
+      return 90;
+    default:
+      return 0;
+  }
+}
+
+export async function checkPdfNeedsNormalization(
+  buffer: Buffer,
+  mimeType: string,
+  originalName: string,
+  settings: FilePrintSettings
+): Promise<boolean> {
+  const lowerMime = (mimeType || '').toLowerCase();
+  const lowerName = (originalName || '').toLowerCase();
+  const isPdf = lowerMime === 'application/pdf' || lowerName.endsWith('.pdf');
+  if (!isPdf) return true;
+  try {
+    const pdfDoc = await PDFDocument.load(buffer, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+    const targetIsLandscape = settings.orientation === 'landscape';
+
+    for (const page of pdfDoc.getPages()) {
+      const { width, height } = page.getSize();
+      const rot = ((page.getRotation().angle % 360) + 360) % 360;
+      if (rot !== 0) return true;
+      const visualW = rot === 90 || rot === 270 ? height : width;
+      const visualH = rot === 90 || rot === 270 ? width : height;
+      const pageIsLandscape = visualW > visualH;
+      if (pageIsLandscape !== targetIsLandscape) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function parsePageRange(pageRange: string, totalPages: number): number[] {
   const maxPage = Math.max(1, totalPages);
   const trimmed = (pageRange || '').trim().toLowerCase();
@@ -240,14 +332,17 @@ export async function buildPrintReadyPdf(
         buffer[2] === 0x4e &&
         buffer[3] === 0x47);
 
+    let rot = 0;
     if (isPng) {
       img = await destDoc.embedPng(buffer);
     } else {
       img = await destDoc.embedJpg(buffer);
+      const exifOrient = getJpegExifOrientation(buffer);
+      rot = exifOrientationToDegrees(exifOrient);
     }
     items.push({
       emb: img,
-      rot: 0,
+      rot,
       isImage: true,
     });
   }
@@ -312,27 +407,28 @@ export async function buildPrintReadyPdf(
       const drawRawW = rawW * scale;
       const drawRawH = rawH * scale;
 
+      let xOrigin = targetX;
+      let yOrigin = targetY;
+      if (rot === 90) {
+        xOrigin = targetX + drawVisualW;
+        yOrigin = targetY;
+      } else if (rot === 180) {
+        xOrigin = targetX + drawVisualW;
+        yOrigin = targetY + drawVisualH;
+      } else if (rot === 270) {
+        xOrigin = targetX;
+        yOrigin = targetY + drawVisualH;
+      }
+
       if (item.isImage) {
         sheet.drawImage(item.emb, {
-          x: targetX,
-          y: targetY,
-          width: drawVisualW,
-          height: drawVisualH,
+          x: xOrigin,
+          y: yOrigin,
+          width: drawRawW,
+          height: drawRawH,
+          rotate: degrees(rot),
         });
       } else {
-        let xOrigin = targetX;
-        let yOrigin = targetY;
-        if (rot === 90) {
-          xOrigin = targetX + drawVisualW;
-          yOrigin = targetY;
-        } else if (rot === 180) {
-          xOrigin = targetX + drawVisualW;
-          yOrigin = targetY + drawVisualH;
-        } else if (rot === 270) {
-          xOrigin = targetX;
-          yOrigin = targetY + drawVisualH;
-        }
-
         sheet.drawPage(item.emb, {
           x: xOrigin,
           y: yOrigin,

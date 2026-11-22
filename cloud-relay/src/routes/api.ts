@@ -6,6 +6,7 @@ import multer from 'multer';
 import type { RelayConfig } from '../config.js';
 import {
   buildPrintReadyPdf,
+  checkPdfNeedsNormalization,
   countSelectedPages,
   detectPageCount,
   isSupportedFile,
@@ -230,7 +231,10 @@ export function createApiRouter(
           amountPaise += fileAmountPaise;
 
           let printReadyBuffer: Buffer = f.buffer;
-          if (needsPrintReadyProcessing(settings, f.mimetype, f.originalname)) {
+          const needsProcessing =
+            needsPrintReadyProcessing(settings, f.mimetype, f.originalname) ||
+            (await checkPdfNeedsNormalization(f.buffer, f.mimetype, f.originalname, settings));
+          if (needsProcessing) {
             try {
               printReadyBuffer = await buildPrintReadyPdf(
                 f.buffer,
@@ -246,7 +250,8 @@ export function createApiRouter(
             }
           }
 
-          const storagePath = path.join(jobDir, `${fileId}_${safeName}`);
+          const storageExt = settings.printReady && !safeName.toLowerCase().endsWith('.pdf') ? '.pdf' : '';
+          const storagePath = path.join(jobDir, `${fileId}_${safeName}${storageExt}`);
           await fs.writeFile(storagePath, printReadyBuffer);
 
           fileRecords.push({
