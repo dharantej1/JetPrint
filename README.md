@@ -83,19 +83,19 @@ GNU AGPL v3 licensed with zero cloud lock-in. Print files download straight to y
 <td width="33%" valign="top">
 
 ### Multi-Printer Pools (10–20+ Printers)
-Group printers into dedicated capability pools: B&W laser pools, color photo pools, and large format (A3/Legal) pools. Per-file smart routing automatically splits multi-file customer orders to the correct hardware with round-robin load balancing.
+Master-Detail hardware workspace with live interactive pool filter tabs (`B&W`, `Color`, `Large Format`, `Default`). Auto-detects CUPS and Windows printers, resolves network aliases, and automatically routes multi-file orders with round-robin balancing.
 
 </td>
 <td width="33%" valign="top">
 
 ### ⚡ Rush Hour Zero-OTP Auto-Print
-Flip a single toggle in Owner Mode during peak hours to automatically dispatch incoming paid orders directly to the printer pool upon payment—eliminating customer OTP wait times and manual queue clicks.
+Flip the high-visibility toolbar toggle in Owner Mode during peak hours to automatically dispatch incoming paid orders directly to the printer pool upon payment—eliminating customer OTP wait times and manual queue clicks.
 
 </td>
 <td width="33%" valign="top">
 
 ### Dedicated Settings Space
-Replaces floating modal popups with a comprehensive full-page Settings workspace: auto-detected hardware inventory, printer nicknames, capability tags, per-page pricing, display controls, and diagnostic logging.
+Ergonomic full-page Settings workspace: Master-Detail printer configuration, printer nicknames, capability tags, per-page pricing, display controls, and diagnostic logging.
 
 </td>
 </tr>
@@ -195,10 +195,11 @@ JetPrint features a dual-mode interface designed for high-throughput public spac
 <td width="50%">
 
 ### 2. Owner Mode (Password Protected)
-- **Live Print Queue:** View all incoming, paid, printing, and completed jobs with timestamps and revenue.
-- **Date Filtering:** Quick filter by date range to audit today's print volume and total income.
-- **Manual Overrides:** Reprint failed sheets or manually delete corrupted jobs with one click.
-- **In-App Logs:** Direct access to live diagnostic logs for immediate troubleshooting.
+- **High-Throughput Print Queue:** Workflow category tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`) and real-time OTP / file search.
+- **⚡ Rush Hour Auto-Print:** Instant dispatch upon payment settlement with a 10s auto-dismissing banner notification.
+- **Touch-Optimized Display:** Fluid responsive layout with a 10px high-contrast scrollbar tailored for touch POS monitors.
+- **Privacy & Security:** Completed documents are purged with reprint disabled to protect user data and prevent duplicate runs.
+- **In-App Logs & Overrides:** Direct access to live diagnostic logs, date filtering, and per-file printer redirection.
 
 </td>
 </tr>

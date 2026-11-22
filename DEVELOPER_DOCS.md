@@ -134,9 +134,10 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `normalize_phrase()` / `validate_phrase()`: Lowercases, trims whitespace, validates 12-word BIP39.
   - `hash_secret()` / `verify_secret()`: Argon2id PHC hashing/verification (`argon2` crate).
 - **`src/printer.rs`**:
-  - `list_system_printers()`: Enumerates system printers via the `printers` crate.
+  - `list_system_printers()`: Enumerates system printers via the `printers` crate, performs canonical name matching, resolves Bonjour ghost loopback aliases (`<PrinterName> @ <Host>`), and deduplicates network loopback entries.
+  - `resolve_printer_with_alias_handling()`: Intelligent alias resolution matching requested printer names against canonical hardware queues or network aliases, with automatic fallback to the OS default printer.
   - `route_file_to_printer()`: Smart capability routing matching document properties (Color/BW, A4/A3/Legal) to pool queues with round-robin load balancing and fallback cascade.
-  - `print_job_files_pooled()`: Dispatches each file in a job to its resolved printer.
+  - `print_job_files_pooled()`: Dispatches each file in a job to its resolved printer with fallback handling.
   - `print_test_page()`: Sends an aligned diagnostic test page to any selected printer.
 - **`src/ws_client.rs`**:
   - `build_ws_url()`: Converts `http(s)://` to `ws(s)://.../ws`.
@@ -162,9 +163,9 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 | `list_printers` | Printer | — | `PrinterInfo[]` | Enumerates available OS printers (CUPS / spooler). |
 | `get_configured_printers` | Printer | — | `ConfiguredPrinter[]` | Loads configured printers, pool assignments, and capability tags. |
 | `save_configured_printers` | Printer | `printers: ConfiguredPrinter[]` | `void` | Persists printer pool configurations, nicknames, and active flags. |
-| `test_print` | Printer | `printerName: string` | `void` | Prints a diagnostic test alignment page on the target printer. |
-| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Validates OTP and dispatches job files using smart pool routing. |
-| `print_job_direct` | Print | `jobId: string, printerOverrides?: Record<string, string>` | `PrintResult` | Direct print without OTP (used in Owner Queue & Rush Hour Mode). |
+| `test_print` | Printer | `printerName: string` | `void` | Async command (`spawn_blocking`, 30s timeout) to print an alignment test page on target printer. |
+| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Async command (`spawn_blocking`, 30s timeout) validating OTP and dispatching job files. |
+| `print_job_direct` | Print | `jobId: string, printerOverrides?: Record<string, string>` | `PrintResult` | Async direct print (`spawn_blocking`, 30s timeout) without OTP (used in Owner Queue & Rush Hour). |
 | `list_jobs` | Print | `limit?: number, date?: string` | `PrintJob[]` | Queries job history from local SQLite database. |
 | `cancel_job` | Print | `jobId: string` | `void` | Marks pending job as failed/cancelled. |
 | `connect_relay` | Relay | `relayUrl?: string` | `KioskState` | Updates relay address and forces WebSocket reconnection. |
@@ -187,10 +188,10 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 - **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), handles Rush Hour Auto-Print on incoming jobs, and renders:
   - `QrPanel.tsx`: QR code for `<relayUrl>/upload?machine_id=<machineId>` and pricing.
   - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode).
-  - `OwnerModeQueue.tsx`: Live job queue with **⚡ Rush Hour Auto-Print** header toggle, per-file auto-routed printer badges with quick dropdown overrides, and **⚡ Direct Print** actions.
+  - `OwnerModeQueue.tsx`: High-throughput queue with 4 workflow tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time search filtering (`Quick search OTP or file...`), 10px touch-friendly scrollbar, fluid responsive grid, 10s auto-dismissing banner notice, and removed reprint button for purged documents.
   - `FirstRunWizard.tsx`: First-run password creation & BIP39 phrase confirmation.
   - `OwnerUnlockModal.tsx`: Keypad PIN/Password authentication dialog before entering settings.
-  - `DedicatedSettingsPage.tsx`: Full-page settings workspace with sidebar navigation (Printers & Pools, Pricing & Paper, Mode, Relay, System & Updates) and top header controls.
+  - `DedicatedSettingsPage.tsx`: Full-page settings workspace with Master-Detail printer & pool assignments, interactive pool filter tabs, per-page pricing, mode selection, relay status, and system controls.
   - `LogsWindow.tsx`: Dedicated live logs inspector.
 
 ---

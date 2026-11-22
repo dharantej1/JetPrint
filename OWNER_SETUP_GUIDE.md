@@ -216,25 +216,38 @@ Once unlocked, JetPrint transitions into a **Full-Page Dedicated Settings Worksp
 
 JetPrint supports scaling from a single counter printer to high-volume print shops managing **10 to 20+ printers**.
 
-### Printer Capability Tagging & Smart Pool Routing
+### Master-Detail Interface & Interactive Pool Filters
 
-Under the **Printers & Pools** tab:
-1. **Auto-Discovery**: JetPrint automatically detects all printers installed in your OS (macOS, Windows, or Linux CUPS). Click **Rescan System Printers** anytime new devices are plugged in.
-2. **Printer Profiles**:
-   - **Enabled / Disabled Toggle**: Activate or deactivate printers without unplugging them.
+Under the **Printers & Pools** tab, JetPrint provides an ergonomic Master-Detail configuration workspace:
+
+1. **Interactive Pool Filter Tabs (Header)**:
+   - Filter your printer list instantly by pool: **All Available**, **B&W Pool**, **Color Pool**, **Large Format**, and **Default Pool**.
+   - Each tab displays live counter pills showing how many active printers belong to that specific queue.
+2. **Master Printer List (Left Column)**:
+   - Lists every detected printer with live status indicators, default printer badges, and pool assignment tags.
+   - Selecting any printer opens its detailed settings in the right pane.
+3. **Detail Configuration Workspace (Right Column)**:
+   - **Printer Routing Status**: Toggle any printer active or disabled with a single click without disconnecting hardware.
    - **Display Nickname**: Assign intuitive labels (e.g., *"Counter 1 - Fast Laser"*, *"Photo Station - Epson L805"*, *"Back Office - A3 Plotter"*).
-   - **Capability Tags**: Tag what each printer handles (`B&W`, `Color`, `A4`, `A3`, `Legal`, `Duplex`).
-   - **Pool Assignment**:
-     - **`B&W Pool`**: Dedicated high-speed monochrome printers.
-     - **`Color Pool`**: High-quality color printers.
-     - **`Large Format Pool`**: A3, Legal, or specialty paper printers.
-     - **`Default Pool`**: General fallback queue.
-3. **Per-File Smart Routing**:
-   - In multi-file jobs (e.g. a customer printing 1 B&W PDF and 1 Color presentation), JetPrint routes the B&W document to the B&W printer pool and the Color document to the Color printer pool automatically.
-4. **Load Balancing**:
-   - If multiple printers belong to the same pool (e.g., three B&W laser printers), jobs are automatically load-balanced across active printers to prevent counter bottlenecks.
-5. **Test Print**:
-   - Click **Test Print** on any printer card to verify communication and alignment directly from the settings page.
+   - **Pool Assignment**: Assign to `B&W Pool (Monochrome)`, `Color Pool`, `Large Format Pool`, or `Default Pool`.
+   - **Capability Tags**: Toggle smart routing attributes (`B&W`, `Color`, `A4`, `A3`, `Legal`, `Duplex`).
+   - **Default Printer Selection**: Designate the kiosk primary fallback printer with one click (**Default Selected**).
+   - **Test Print**: Send a diagnostic alignment test page directly to the selected printer.
+4. **Rescan System Printers**:
+   - Click **Rescan System Printers** in the header anytime new USB or network printers are connected.
+
+### Cross-Platform Printer Identification & Alias Resolution
+
+JetPrint works seamlessly across macOS, Linux, and Windows print spoolers:
+- **macOS & Linux (CUPS / Bonjour)**: Automatically detects and resolves Bonjour network ghost loopback aliases (e.g. `<PrinterName> @ <Hostname>` mapped back to the canonical system queue), eliminating loopback duplicate entries and ghost printer errors.
+- **Windows (Print Spooler)**: Directly queries Windows Spooler APIs (`winspool`) with automatic device matching.
+- **Non-Blocking Spooling**: Print jobs and test pages run in asynchronous background worker threads (`tokio::task::spawn_blocking`) with 30-second timeouts, keeping the UI completely fluid and responsive during large multi-page spools.
+- **Automatic Default Fallback**: If a targeted printer is disconnected, renamed, or temporarily unavailable, JetPrint automatically reroutes jobs to the system default printer rather than dropping customer prints.
+
+### Per-File Smart Routing & Load Balancing
+
+- **Smart Pool Matching**: In multi-file orders (e.g., a customer printing both a monochrome report and a color photo), JetPrint automatically splits the order, sending B&W pages to the B&W laser pool and color pages to the photo pool.
+- **Round-Robin Load Balancing**: When multiple printers share a pool, jobs are distributed evenly to maximize output speed.
 
 ### Per-Page Pricing & Paper Sizes
 
@@ -267,16 +280,34 @@ In **Settings → Operating Mode**, choose your shop mode and click **Save Chang
   - Displays the customer QR code and 6-digit OTP keypad.
   - Customers upload, pay on their phone, receive an OTP, and release their prints at the kiosk.
 - **Owner Mode** *(recommended when staff operate the print counters)*:
-  - Displays the QR code and a live **Print Job Queue**.
+  - Displays the QR code alongside a high-throughput **Owner Mode Print Queue**.
   - Paid jobs appear in real time with file details, copies, and assigned printers.
+
+### Owner Mode Queue: High-Throughput Rush Hour Workflow
+
+The Owner Mode Queue is built for busy store environments handling hundreds of jobs:
+
+1. **Workflow Category Filter Tabs**:
+   - **`Action Needed`**: Shows incoming paid jobs requiring physical release or staff action.
+   - **`Completed`**: Shows all finished jobs (both successfully printed and cancelled).
+   - **`Printed`**: Filters exclusively to jobs that have completed physical printing.
+   - **`All Jobs`**: Complete chronological archive of all incoming jobs.
+2. **Real-Time OTP & Filename Search**:
+   - Use the **`Quick search OTP or file...`** bar for instant substring filtering by 6-digit customer OTP or filename.
+3. **Touch-Friendly 10px Scrollbar**:
+   - A prominent 10px high-contrast scrollbar provides effortless scrolling on touch POS monitors and tablets.
+4. **Dynamic Fluid Layout**:
+   - Automatically scales from 1080p touch monitors to ultrawide counter screens and 4K displays without horizontal clipping.
+5. **Document Purging & Security Policy**:
+   - To protect customer privacy and comply with data security standards, customer files are purged once printed (and automatically wiped after 48 hours). The **Re-Print** button is disabled for completed jobs to prevent accidental reprints.
 
 ### ⚡ Rush Hour Auto-Print Mode (Zero-OTP Printing)
 
-During peak hours when long customer lines form, owners can eliminate waiting for OTP entry:
-- Toggle **⚡ Rush Hour Auto-Print** directly from the **Owner Queue header** (or inside Settings).
-- An active amber banner confirms: *"⚡ Rush Hour Mode Active: Incoming paid jobs will print automatically upon arrival without requiring an OTP."*
-- As soon as a customer completes payment on their phone, the job is dispatched directly to the matching printer pool with **zero clicks**.
-- Toggle it off anytime when rush hour ends.
+During peak hours when customer queues form:
+- **Owner Queue Toolbar Toggle**: Click **⚡ Rush Hour Auto-Print** on the top toolbar (styled consistently alongside **Logs** and **Refresh**).
+- **Auto-Dismiss Notice**: A clean amber notice confirms activation and automatically vanishes after 10 seconds to keep the workspace unobstructed.
+- **Owner Mode Guard**: Rush Hour Auto-Print is restricted exclusively to Owner Mode to ensure staff is actively attending the printer trays.
+- **Zero-Touch Printing**: Incoming customer orders print immediately upon payment settlement without manual clicks or OTP verification. Toggle it off anytime when rush hour ends.
 
 ### Per-File Printer Overrides in Owner Queue
 
@@ -287,7 +318,7 @@ Each file in a customer's job card displays an inline printer badge:
 
 ### Filtering the Owner Mode Print Queue by Date
 
-The Print Queue header includes a date filter:
+The Print Queue header includes date navigation:
 - **Today** *(default)*: Shows only today's jobs.
 - **All**: Shows all saved jobs with timestamps.
 - **Date Picker**: Select any past date to view jobs from that day.
