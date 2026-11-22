@@ -4,7 +4,10 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::{AppConfig, JobFile, JobStatus, KioskMode, PrintJob, UpdateSettingsInput};
+use crate::models::{
+    AppConfig, ConfiguredPrinter, JobFile, JobStatus, KioskMode, PrintJob, PrinterPoolType,
+    UpdateSettingsInput,
+};
 
 pub fn generate_machine_id() -> String {
     crate::machine_id::get_deterministic_machine_id()
@@ -81,7 +84,8 @@ impl Database {
                 supported_paper_sizes TEXT NOT NULL DEFAULT '["A4"]',
                 kiosk_mode TEXT NOT NULL DEFAULT 'self_service' CHECK (kiosk_mode IN ('self_service', 'owner')),
                 setup_complete INTEGER NOT NULL DEFAULT 0,
-                exe_fingerprint TEXT
+                exe_fingerprint TEXT,
+                rush_mode INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS print_jobs (
@@ -95,26 +99,40 @@ impl Database {
                 printed_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS configured_printers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                nickname TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                pool TEXT NOT NULL DEFAULT 'default',
+                capabilities TEXT NOT NULL DEFAULT '[]',
+                is_default INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE INDEX IF NOT EXISTS idx_print_jobs_otp ON print_jobs(otp);
             CREATE INDEX IF NOT EXISTS idx_print_jobs_created_at ON print_jobs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_configured_printers_pool ON configured_printers(pool);
             "#,
         )
         .map_err(|e| format!("Failed to initialize SQLite schema: {e}"))?;
 
-        let (has_exe_fingerprint, has_paper_sizes): (bool, bool) = conn
+        let (has_exe_fingerprint, has_paper_sizes, has_rush_mode): (bool, bool, bool) = conn
             .prepare("PRAGMA table_info(app_config)")
             .and_then(|mut stmt| {
                 let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
                 let mut found_exe = false;
                 let mut found_paper = false;
+                let mut found_rush = false;
                 for col in rows.flatten() {
                     if col == "exe_fingerprint" {
                         found_exe = true;
                     } else if col == "supported_paper_sizes" {
                         found_paper = true;
+                    } else if col == "rush_mode" {
+                        found_rush = true;
                     }
                 }
-                Ok((found_exe, found_paper))
+                Ok((found_exe, found_paper, found_rush))
             })
             .map_err(|e| format!("Failed to inspect app_config columns: {e}"))?;
 
@@ -131,6 +149,14 @@ impl Database {
             .map_err(|e| format!("Failed to migrate app_config.supported_paper_sizes: {e}"))?;
         }
 
+        if !has_rush_mode {
+            conn.execute(
+                "ALTER TABLE app_config ADD COLUMN rush_mode INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .map_err(|e| format!("Failed to migrate app_config.rush_mode: {e}"))?;
+        }
+
         let existing: Option<String> = conn
             .query_row("SELECT machine_id FROM app_config WHERE id = 1", [], |row| {
                 row.get(0)
@@ -144,12 +170,46 @@ impl Database {
             conn.execute(
                 r#"
                 INSERT INTO app_config (
-                    id, machine_id, relay_url, bw_price_paise, color_price_paise, supported_paper_sizes, kiosk_mode, setup_complete
-                ) VALUES (1, ?1, ?2, 200, 1000, '["A4"]', 'self_service', 0)
+                    id, machine_id, relay_url, bw_price_paise, color_price_paise, supported_paper_sizes, kiosk_mode, setup_complete, rush_mode
+                ) VALUES (1, ?1, ?2, 200, 1000, '["A4"]', 'self_service', 0, 0)
                 "#,
                 params![machine_id, default_relay],
             )
             .map_err(|e| format!("Failed to seed app_config: {e}"))?;
+        }
+
+        // Migrate existing default_printer into configured_printers if configured_printers is empty
+        let default_printer: Option<String> = conn
+            .query_row(
+                "SELECT default_printer FROM app_config WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to query default_printer: {e}"))?
+            .flatten();
+
+        if let Some(def_p) = default_printer {
+            let trimmed = def_p.trim();
+            if !trimmed.is_empty() {
+                let printer_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM configured_printers",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                if printer_count == 0 {
+                    let _ = conn.execute(
+                        r#"
+                        INSERT INTO configured_printers (
+                            id, name, nickname, enabled, pool, capabilities, is_default
+                        ) VALUES (?1, ?1, NULL, 1, 'default', '["bw", "color", "a4"]', 1)
+                        "#,
+                        params![trimmed],
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -161,7 +221,7 @@ impl Database {
             r#"
             SELECT machine_id, relay_url, auth_token, password_hash, recovery_phrase_hash,
                    bw_price_paise, color_price_paise, default_printer, kiosk_mode, setup_complete,
-                   exe_fingerprint, supported_paper_sizes
+                   exe_fingerprint, supported_paper_sizes, rush_mode
             FROM app_config WHERE id = 1
             "#,
             [],
@@ -173,6 +233,7 @@ impl Database {
                     .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
                     .filter(|list| !list.is_empty())
                     .unwrap_or_else(crate::models::default_supported_paper_sizes);
+                let rush_int: i64 = row.get(12).unwrap_or(0);
                 Ok(AppConfig {
                     machine_id: row.get(0)?,
                     relay_url: row.get(1)?,
@@ -186,6 +247,7 @@ impl Database {
                     kiosk_mode: KioskMode::from_str(&mode_str),
                     setup_complete: setup_int != 0,
                     exe_fingerprint: row.get(10)?,
+                    rush_mode: rush_int != 0,
                 })
             },
         )
@@ -298,6 +360,8 @@ impl Database {
                 .map_err(|e| format!("Failed to start reset transaction: {e}"))?;
             tx.execute("DELETE FROM print_jobs", [])
                 .map_err(|e| format!("Failed to clear print_jobs: {e}"))?;
+            tx.execute("DELETE FROM configured_printers", [])
+                .map_err(|e| format!("Failed to clear configured_printers: {e}"))?;
             tx.execute(
                 r#"
                 UPDATE app_config
@@ -312,7 +376,8 @@ impl Database {
                     supported_paper_sizes = '["A4"]',
                     kiosk_mode = 'self_service',
                     setup_complete = 0,
-                    exe_fingerprint = ?2
+                    exe_fingerprint = ?2,
+                    rush_mode = 0
                 WHERE id = 1
                 "#,
                 params![new_machine_id, fingerprint],
@@ -343,6 +408,7 @@ impl Database {
             None => current.default_printer,
         };
         let kiosk_mode = input.kiosk_mode.clone().unwrap_or(current.kiosk_mode);
+        let rush_mode = input.rush_mode.unwrap_or(current.rush_mode);
         let supported_paper_sizes = match &input.supported_paper_sizes {
             Some(sizes) if !sizes.is_empty() => sizes.clone(),
             _ => current.supported_paper_sizes,
@@ -366,7 +432,8 @@ impl Database {
                     color_price_paise = ?4,
                     default_printer = ?5,
                     kiosk_mode = ?6,
-                    supported_paper_sizes = ?7
+                    supported_paper_sizes = ?7,
+                    rush_mode = ?8
                 WHERE id = 1
                 "#,
                 params![
@@ -377,11 +444,132 @@ impl Database {
                     default_printer,
                     kiosk_mode.as_str(),
                     supported_paper_sizes_json,
+                    if rush_mode { 1i64 } else { 0i64 },
                 ],
             )
             .map_err(|e| format!("Failed to update settings: {e}"))?;
+
+            // If default_printer was explicitly set, synchronize it into configured_printers
+            if let Some(ref def_name) = default_printer {
+                let trimmed = def_name.trim();
+                if !trimmed.is_empty() {
+                    let _ = conn.execute(
+                        "UPDATE configured_printers SET is_default = CASE WHEN name = ?1 THEN 1 ELSE 0 END",
+                        params![trimmed],
+                    );
+                    let exists: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM configured_printers WHERE name = ?1",
+                            params![trimmed],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or(0);
+                    if exists == 0 {
+                        let _ = conn.execute(
+                            r#"
+                            INSERT INTO configured_printers (id, name, nickname, enabled, pool, capabilities, is_default)
+                            VALUES (?1, ?1, NULL, 1, 'default', '["bw","color","a4"]', 1)
+                            "#,
+                            params![trimmed],
+                        );
+                    }
+                }
+            }
         }
         self.get_config()
+    }
+
+    pub fn get_configured_printers(&self) -> Result<Vec<ConfiguredPrinter>, String> {
+        let conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT id, name, nickname, enabled, pool, capabilities, is_default
+                FROM configured_printers
+                ORDER BY is_default DESC, name ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare get_configured_printers: {e}"))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let pool_str: String = row.get(4)?;
+                let caps_str: String = row.get(5)?;
+                let caps: Vec<String> = serde_json::from_str(&caps_str).unwrap_or_default();
+                let enabled_int: i64 = row.get(3)?;
+                let default_int: i64 = row.get(6)?;
+                Ok(ConfiguredPrinter {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    nickname: row.get(2)?,
+                    enabled: enabled_int != 0,
+                    pool: PrinterPoolType::from_str(&pool_str),
+                    capabilities: caps,
+                    is_default: default_int != 0,
+                })
+            })
+            .map_err(|e| format!("Failed to query configured_printers: {e}"))?;
+
+        let mut printers = Vec::new();
+        for r in rows {
+            printers.push(r.map_err(|e| format!("Failed to decode configured printer: {e}"))?);
+        }
+        Ok(printers)
+    }
+
+    pub fn save_configured_printers(
+        &self,
+        printers: &[ConfiguredPrinter],
+    ) -> Result<Vec<ConfiguredPrinter>, String> {
+        let mut conn = self.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start save_configured_printers tx: {e}"))?;
+
+        tx.execute("DELETE FROM configured_printers", [])
+            .map_err(|e| format!("Failed to clear configured_printers: {e}"))?;
+
+        let mut default_printer_name: Option<String> = None;
+
+        for p in printers {
+            let caps_json =
+                serde_json::to_string(&p.capabilities).unwrap_or_else(|_| "[]".to_string());
+            tx.execute(
+                r#"
+                INSERT INTO configured_printers (
+                    id, name, nickname, enabled, pool, capabilities, is_default
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "#,
+                params![
+                    p.id,
+                    p.name,
+                    p.nickname,
+                    if p.enabled { 1i64 } else { 0i64 },
+                    p.pool.as_str(),
+                    caps_json,
+                    if p.is_default { 1i64 } else { 0i64 },
+                ],
+            )
+            .map_err(|e| format!("Failed to insert configured printer {}: {e}", p.name))?;
+
+            if p.is_default && default_printer_name.is_none() {
+                default_printer_name = Some(p.name.clone());
+            }
+        }
+
+        if let Some(ref def_name) = default_printer_name {
+            tx.execute(
+                "UPDATE app_config SET default_printer = ?1 WHERE id = 1",
+                params![def_name],
+            )
+            .map_err(|e| format!("Failed to sync default_printer to app_config: {e}"))?;
+        }
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit configured_printers: {e}"))?;
+
+        drop(conn);
+        self.get_configured_printers()
     }
 
     /// Sets machine_id to the host deterministic identity and clears auth_token so the kiosk re-registers with the relay.
@@ -586,6 +774,7 @@ mod tests {
                 default_printer: Some("HP LaserJet".to_string()),
                 supported_paper_sizes: None,
                 kiosk_mode: Some(KioskMode::Owner),
+                rush_mode: Some(true),
             })
             .expect("update_settings");
         assert_eq!(settings.relay_url, "https://relay.example.com");
@@ -594,6 +783,12 @@ mod tests {
         assert_eq!(settings.default_printer.as_deref(), Some("HP LaserJet"));
         assert_eq!(settings.supported_paper_sizes, vec!["A4".to_string()]);
         assert_eq!(settings.kiosk_mode, KioskMode::Owner);
+        assert!(settings.rush_mode);
+
+        let printers = db.get_configured_printers().expect("get_configured_printers");
+        assert_eq!(printers.len(), 1);
+        assert_eq!(printers[0].name, "HP LaserJet");
+        assert!(printers[0].is_default);
     }
 
     #[test]
@@ -609,6 +804,7 @@ mod tests {
                 default_printer: None,
                 supported_paper_sizes: None,
                 kiosk_mode: None,
+                rush_mode: None,
             })
             .expect("update_settings");
 
@@ -626,6 +822,7 @@ mod tests {
             default_printer: None,
             supported_paper_sizes: None,
             kiosk_mode: None,
+            rush_mode: None,
         })
         .expect("set relay_url");
         db.update_auth_token(Some("tok_keep")).expect("set token");
@@ -638,6 +835,7 @@ mod tests {
                 default_printer: None,
                 supported_paper_sizes: None,
                 kiosk_mode: None,
+                rush_mode: None,
             })
             .expect("update_settings same relay");
 
@@ -659,6 +857,7 @@ mod tests {
                 default_printer: None,
                 supported_paper_sizes: Some(vec!["A4".to_string(), "Letter".to_string(), "Legal".to_string()]),
                 kiosk_mode: None,
+                rush_mode: None,
             })
             .expect("update supported_paper_sizes");
         assert_eq!(
@@ -698,6 +897,7 @@ mod tests {
                 local_path: "/tmp/doc.pdf".to_string(),
                 pages: 3,
                 settings: None,
+                assigned_printer: None,
             }],
             copies: 2,
             color: true,
@@ -785,6 +985,7 @@ mod tests {
             default_printer: Some("Canon".to_string()),
             supported_paper_sizes: None,
             kiosk_mode: Some(KioskMode::Owner),
+            rush_mode: None,
         })
         .expect("update_settings");
         db.insert_job(&PrintJob {
@@ -846,6 +1047,7 @@ mod tests {
                 local_path: path.to_string_lossy().to_string(),
                 pages: 1,
                 settings: None,
+                assigned_printer: None,
             }
         };
 
@@ -908,6 +1110,53 @@ mod tests {
                 .status,
             JobStatus::Pending
         );
+    }
+
+    #[test]
+    fn saves_and_retrieves_configured_printers_and_syncs_default_printer() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let initial_printers = db.get_configured_printers().expect("get configured printers");
+        assert!(initial_printers.is_empty());
+
+        let printers_to_save = vec![
+            ConfiguredPrinter {
+                id: "p1".to_string(),
+                name: "Canon-MF3010".to_string(),
+                nickname: Some("Front Counter".to_string()),
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["bw".to_string(), "a4".to_string()],
+                is_default: true,
+            },
+            ConfiguredPrinter {
+                id: "p2".to_string(),
+                name: "Epson-L3150".to_string(),
+                nickname: Some("Color Station".to_string()),
+                enabled: true,
+                pool: PrinterPoolType::Color,
+                capabilities: vec!["color".to_string(), "a4".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p3".to_string(),
+                name: "HP-DesignJet".to_string(),
+                nickname: Some("Poster Plotter".to_string()),
+                enabled: false,
+                pool: PrinterPoolType::LargeFormat,
+                capabilities: vec!["a3".to_string(), "legal".to_string()],
+                is_default: false,
+            },
+        ];
+
+        let saved = db
+            .save_configured_printers(&printers_to_save)
+            .expect("save configured printers");
+        assert_eq!(saved.len(), 3);
+        assert_eq!(saved[0].name, "Canon-MF3010");
+        assert!(saved[0].is_default);
+
+        let cfg = db.get_config().expect("get_config");
+        assert_eq!(cfg.default_printer.as_deref(), Some("Canon-MF3010"));
     }
 }
 

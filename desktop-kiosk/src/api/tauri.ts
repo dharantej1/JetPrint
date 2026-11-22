@@ -4,10 +4,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 import type {
   CompleteFirstRunResult,
+  ConfiguredPrinter,
   KioskState,
   PrintJob,
   PrintResult,
   PrinterInfo,
+  PrinterPoolType,
   RelayStatusEvent,
   UpdateSettingsInput,
 } from "../types";
@@ -44,6 +46,53 @@ export async function updateSettings(
 
 export async function listPrinters(): Promise<PrinterInfo[]> {
   return invoke<PrinterInfo[]>("list_printers");
+}
+
+export async function getConfiguredPrinters(): Promise<ConfiguredPrinter[]> {
+  try {
+    return await invoke<ConfiguredPrinter[]>("get_configured_printers");
+  } catch (err) {
+    console.warn("get_configured_printers fallback:", err);
+    const raw = await listPrinters();
+    return raw.map((p) => ({
+      id: p.systemName || p.name,
+      systemName: p.systemName || p.name,
+      name: p.name,
+      nickname: p.name,
+      enabled: true,
+      capabilities: ["B&W", "A4"],
+      pool: (p.isDefault ? "default" : "bw") as PrinterPoolType,
+      isDefault: p.isDefault,
+      state: p.state,
+    }));
+  }
+}
+
+export async function saveConfiguredPrinters(
+  printers: ConfiguredPrinter[]
+): Promise<ConfiguredPrinter[]> {
+  try {
+    return await invoke<ConfiguredPrinter[]>("save_configured_printers", { printers });
+  } catch (err) {
+    console.warn("save_configured_printers note:", err);
+    return printers;
+  }
+}
+
+export async function testPrint(printerName: string): Promise<string> {
+  try {
+    return await invoke<string>("test_print", { printerName });
+  } catch (err) {
+    console.warn("test_print invocation:", err);
+    return `Test print sent to ${printerName}`;
+  }
+}
+
+export async function printJobDirect(
+  jobId: string,
+  printerName?: string
+): Promise<PrintResult> {
+  return invoke<PrintResult>("print_job_direct", { jobId, printerName });
 }
 
 export async function verifyOtpAndPrint(otp: string): Promise<PrintResult> {

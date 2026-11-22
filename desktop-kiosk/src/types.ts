@@ -2,6 +2,28 @@ export type KioskMode = "self_service" | "owner";
 export type JobStatus = "pending" | "printing" | "printed" | "failed" | "expired" | "cancelled";
 export type RelayStatus = "connecting" | "connected" | "error" | "disconnected";
 
+export type PrinterPoolType = "bw" | "color" | "large_format" | "default";
+
+export interface ConfiguredPrinter {
+  id: string;
+  systemName?: string;
+  name: string;
+  nickname?: string;
+  enabled: boolean;
+  capabilities: string[];
+  pool: PrinterPoolType;
+  isDefault?: boolean;
+  state?: string;
+}
+
+export interface PrinterPoolConfig {
+  id?: string;
+  name?: string;
+  poolType: PrinterPoolType;
+  printerIds?: string[];
+  printerNames?: string[];
+}
+
 export interface KioskState {
   machineId: string;
   relayUrl: string;
@@ -19,6 +41,10 @@ export interface KioskState {
   existingDataPrompt: boolean;
   existingJobCount: number;
   storagePath: string;
+  configuredPrinters?: ConfiguredPrinter[];
+  printerPools?: PrinterPoolConfig[];
+  rushMode?: boolean;
+  rushHourAutoPrint?: boolean;
 }
 
 export interface CompleteFirstRunResult {
@@ -33,6 +59,9 @@ export interface UpdateSettingsInput {
   defaultPrinter?: string;
   supportedPaperSizes?: string[];
   kioskMode?: KioskMode;
+  configuredPrinters?: ConfiguredPrinter[];
+  rushMode?: boolean;
+  rushHourAutoPrint?: boolean;
 }
 
 export interface PrinterInfo {
@@ -61,6 +90,7 @@ export interface JobFile {
   localPath: string;
   pages: number;
   settings?: FilePrintSettings;
+  assignedPrinter?: string;
 }
 
 export interface PrintJob {

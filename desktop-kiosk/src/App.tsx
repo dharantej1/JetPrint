@@ -10,9 +10,11 @@ import {
   isFullscreen as checkIsFullscreen,
   listJobs,
   listenKioskEvents,
+  printJobDirect,
   resetMachineIdentity,
   setFullscreen,
   toggleFullscreen,
+  updateSettings,
   verifyOtpAndPrint,
   type UpdateCheckResult,
 } from "./api/tauri";
@@ -20,7 +22,8 @@ import { QrPanel } from "./components/QrPanel";
 import { OtpKeypad, type OtpFeedbackStatus } from "./components/OtpKeypad";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { ExistingDataModal } from "./components/ExistingDataModal";
-import { OwnerSettingsModal } from "./components/OwnerSettingsModal";
+import { OwnerUnlockModal } from "./components/OwnerUnlockModal";
+import { DedicatedSettingsPage } from "./components/DedicatedSettingsPage";
 import { OwnerModeQueue, getTodayLocalDate } from "./components/OwnerModeQueue";
 import { LogsWindow } from "./components/LogsWindow";
 import { useKioskLayout } from "./hooks/useKioskLayout";
@@ -42,6 +45,8 @@ const FALLBACK_STATE: KioskState = {
   existingDataPrompt: false,
   existingJobCount: 0,
   storagePath: "",
+  rushMode: false,
+  rushHourAutoPrint: false,
 };
 
 const KioskApp: React.FC = () => {
@@ -52,6 +57,15 @@ const KioskApp: React.FC = () => {
   const [relayMessage, setRelayMessage] = useState<string | null>(null);
   const [relayAuthError, setRelayAuthError] = useState<string | null>(null);
   const [reRegistering, setReRegistering] = useState(false);
+
+  // Dedicated settings view routing state
+  const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+
+  // Rush Hour Auto-Print state
+  const [rushHourEnabled, setRushHourEnabled] = useState(false);
+  const rushHourRef = useRef(rushHourEnabled);
+  rushHourRef.current = rushHourEnabled;
 
   // OTP entry state
   const [otp, setOtp] = useState("");
@@ -73,8 +87,7 @@ const KioskApp: React.FC = () => {
   const selectedDateRef = useRef(selectedDate);
   selectedDateRef.current = selectedDate;
 
-  // Owner modal & updater state
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Updater state
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentVersion, setCurrentVersion] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
@@ -188,10 +201,45 @@ const KioskApp: React.FC = () => {
     }
   }, []);
 
+  const handleOwnerQueuePrint = useCallback(
+    async (jobOrOtp: PrintJob | string, printerOverride?: string) => {
+      const job =
+        typeof jobOrOtp === "string"
+          ? jobs.find((j) => j.otp === jobOrOtp)
+          : jobOrOtp;
+      const otp = typeof jobOrOtp === "string" ? jobOrOtp : jobOrOtp.otp;
+      const jobId = job ? job.id : undefined;
+
+      setPrintingJobOtp(otp);
+      try {
+        if (jobId) {
+          try {
+            await printJobDirect(jobId, printerOverride);
+          } catch (directErr) {
+            console.warn(
+              "printJobDirect failed, falling back to verifyOtpAndPrint:",
+              directErr
+            );
+            await verifyOtpAndPrint(otp);
+          }
+        } else {
+          await verifyOtpAndPrint(otp);
+        }
+        await refreshJobs();
+      } catch (err) {
+        console.error("Direct print failed:", err);
+      } finally {
+        setPrintingJobOtp(null);
+      }
+    },
+    [jobs, refreshJobs]
+  );
+
   const loadState = useCallback(async () => {
     try {
       const state = await getKioskState();
       setKioskState(state);
+      setRushHourEnabled(Boolean(state.rushMode || state.rushHourAutoPrint));
       setRelayStatus(state.relayStatus);
       setRelayMessage(state.relayMessage);
       setRelayAuthError(state.relayAuthError);
@@ -215,9 +263,18 @@ const KioskApp: React.FC = () => {
     let unlisteners: Array<() => void> = [];
 
     listenKioskEvents({
-      onJobReceived: () => {
+      onJobReceived: (incomingJob) => {
         if (kioskModeRef.current === "owner") {
           refreshJobs();
+          // Handle Rush Hour Auto-Print: automatically print incoming jobs upon the 'job-received' event
+          if (rushHourRef.current && incomingJob) {
+            console.log(
+              "⚡ Rush Hour Auto-Print: automatically printing incoming job",
+              incomingJob.id,
+              incomingJob.otp
+            );
+            handleOwnerQueuePrint(incomingJob);
+          }
         }
       },
       onRelayStatus: (event) => {
@@ -260,7 +317,7 @@ const KioskApp: React.FC = () => {
       window.clearInterval(updateTimer);
       unlisteners.forEach((fn) => fn());
     };
-  }, [loadState, refreshJobs, runUpdateCheck]);
+  }, [loadState, refreshJobs, runUpdateCheck, handleOwnerQueuePrint]);
 
   // Ctrl+Shift+S / Cmd+Shift+S shortcut to open Owner Settings
   useEffect(() => {
@@ -268,13 +325,17 @@ const KioskApp: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (kioskState.setupComplete) {
-          setSettingsOpen(true);
+          if (isSettingsUnlocked) {
+            setIsSettingsUnlocked(false);
+          } else {
+            setShowUnlockModal(true);
+          }
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [kioskState.setupComplete]);
+  }, [kioskState.setupComplete, isSettingsUnlocked]);
 
   // F11 and Escape key listeners for fullscreen toggle/exit
   useEffect(() => {
@@ -309,7 +370,7 @@ const KioskApp: React.FC = () => {
     if (tapCountRef.current >= 5) {
       tapCountRef.current = 0;
       if (kioskState.setupComplete) {
-        setSettingsOpen(true);
+        setShowUnlockModal(true);
       }
       return;
     }
@@ -348,18 +409,6 @@ const KioskApp: React.FC = () => {
     }
   }, [otp]);
 
-  const handleOwnerQueuePrint = async (jobOtp: string) => {
-    setPrintingJobOtp(jobOtp);
-    try {
-      await verifyOtpAndPrint(jobOtp);
-      await refreshJobs();
-    } catch (err) {
-      console.error("Direct print failed:", err);
-    } finally {
-      setPrintingJobOtp(null);
-    }
-  };
-
   const handleOwnerQueueCancel = async (jobId: string) => {
     setCancellingJobId(jobId);
     try {
@@ -376,6 +425,20 @@ const KioskApp: React.FC = () => {
     setSelectedDate(nextDate);
     selectedDateRef.current = nextDate;
     refreshJobs(nextDate);
+  };
+
+  const handleToggleRushHour = async (enabled: boolean) => {
+    setRushHourEnabled(enabled);
+    try {
+      const next = await updateSettings({
+        rushMode: enabled,
+        rushHourAutoPrint: enabled,
+      });
+      setKioskState(next);
+      setRushHourEnabled(Boolean(next.rushMode || next.rushHourAutoPrint));
+    } catch (err) {
+      console.warn("Failed to persist rushMode setting:", err);
+    }
   };
 
   const handleReRegister = async () => {
@@ -397,6 +460,33 @@ const KioskApp: React.FC = () => {
       setReRegistering(false);
     }
   };
+
+  // Dedicated view routing: when unlocked, show DedicatedSettingsPage instead of Kiosk view
+  if (isSettingsUnlocked) {
+    return (
+      <DedicatedSettingsPage
+        kioskState={kioskState}
+        currentVersion={currentVersion}
+        availableUpdate={availableUpdate}
+        updateCheckError={updateCheckError}
+        isUpToDate={isUpToDate}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
+        onCheckForUpdates={() => runUpdateCheck(false)}
+        onBackToKiosk={() => setIsSettingsUnlocked(false)}
+        onStateUpdated={(next) => {
+          setKioskState(next);
+          setRushHourEnabled(Boolean(next.rushMode || next.rushHourAutoPrint));
+          setRelayStatus(next.relayStatus);
+          setRelayMessage(next.relayMessage);
+          setRelayAuthError(next.relayAuthError);
+          if (next.kioskMode === "owner") {
+            refreshJobs();
+          }
+        }}
+      />
+    );
+  }
 
   const isRelayOnline = relayStatus === "connected";
   const hasRelayAuthError = !isRelayOnline && Boolean(relayAuthError);
@@ -441,7 +531,7 @@ const KioskApp: React.FC = () => {
                 color: "#c7d2fe",
                 background: "rgba(99, 102, 241, 0.16)",
               }}
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => setShowUnlockModal(true)}
             >
               <DownloadCloud size={14} />
               <span>Update v{availableUpdate.version}</span>
@@ -460,9 +550,9 @@ const KioskApp: React.FC = () => {
           <button
             type="button"
             className="settings-trigger-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Owner Settings (Ctrl+Shift+S)"
-            aria-label="Owner Settings"
+            onClick={() => setShowUnlockModal(true)}
+            title="Owner Settings Space (Ctrl+Shift+S)"
+            aria-label="Owner Settings Space"
           >
             <Settings size={18} />
           </button>
@@ -523,6 +613,9 @@ const KioskApp: React.FC = () => {
               onCancelJob={handleOwnerQueueCancel}
               printingOtp={printingJobOtp}
               cancellingJobId={cancellingJobId}
+              rushHourEnabled={rushHourEnabled}
+              onToggleRushHour={handleToggleRushHour}
+              configuredPrinters={kioskState.configuredPrinters}
             />
           </>
         ) : !isSingleView ? (
@@ -623,26 +716,13 @@ const KioskApp: React.FC = () => {
         />
       )}
 
-      {settingsOpen && (
-        <OwnerSettingsModal
-          kioskState={kioskState}
-          currentVersion={currentVersion}
-          availableUpdate={availableUpdate}
-          updateCheckError={updateCheckError}
-          isUpToDate={isUpToDate}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={handleToggleFullscreen}
-          onCheckForUpdates={() => runUpdateCheck(false)}
-          onClose={() => setSettingsOpen(false)}
-          onStateUpdated={(next) => {
-            setKioskState(next);
-            setRelayStatus(next.relayStatus);
-            setRelayMessage(next.relayMessage);
-            setRelayAuthError(next.relayAuthError);
-            if (next.kioskMode === "owner") {
-              refreshJobs();
-            }
+      {showUnlockModal && (
+        <OwnerUnlockModal
+          onUnlock={() => {
+            setShowUnlockModal(false);
+            setIsSettingsUnlocked(true);
           }}
+          onClose={() => setShowUnlockModal(false)}
         />
       )}
     </div>

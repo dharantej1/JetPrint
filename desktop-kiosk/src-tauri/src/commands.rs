@@ -8,10 +8,10 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::logger::AppLogger;
 use crate::models::{
-    AppConfig, CompleteFirstRunResult, JobStatus, KioskState, PrintJob, PrintResult, PrinterInfo,
-    UpdateSettingsInput,
+    AppConfig, CompleteFirstRunResult, ConfiguredPrinter, JobStatus, KioskState, PrintJob,
+    PrintResult, PrinterInfo, PrinterPoolType, UpdateSettingsInput,
 };
-use crate::printer::{list_system_printers, print_job_files};
+use crate::printer::{list_system_printers, print_job_files_pooled, print_test_page};
 use crate::security::{
     generate_recovery_phrase, hash_secret, normalize_phrase, validate_phrase, verify_secret,
 };
@@ -83,6 +83,7 @@ fn to_kiosk_state(cfg: AppConfig, state: &AppState) -> KioskState {
         existing_data_prompt,
         existing_job_count,
         storage_path: state.storage.data_dir().to_string_lossy().to_string(),
+        rush_mode: cfg.rush_mode,
     }
 }
 
@@ -213,18 +214,21 @@ pub fn verify_otp_and_print(
     }
 
     let cfg = db.get_config()?;
+    let configured_printers = db.get_configured_printers().unwrap_or_default();
     db.update_job_status(&job.id, JobStatus::Printing)?;
     state.relay.send_job_status(&job.id, "printing", None);
     state
         .logger
         .log("INFO", &format!("Printing started for job {} (OTP {})", job.id, job.otp));
 
-    if let Err(err) = print_job_files(
-        cfg.default_printer.as_deref(),
+    if let Err(err) = print_job_files_pooled(
         &job.files,
         job.copies,
         job.color,
+        &configured_printers,
+        cfg.default_printer.as_deref(),
         Some(&cfg.supported_paper_sizes),
+        None,
     ) {
         let _ = db.update_job_status(&job.id, JobStatus::Failed);
         state.relay.send_job_status(&job.id, "failed", Some(&err));
@@ -254,6 +258,178 @@ pub fn verify_otp_and_print(
         job: updated_job,
         message: "Print job sent to printer successfully".to_string(),
     })
+}
+
+#[tauri::command]
+pub fn print_job_direct(
+    state: State<'_, AppState>,
+    job_id: String,
+    printer_name: Option<String>,
+    printer_overrides: Option<std::collections::HashMap<String, String>>,
+) -> Result<PrintResult, String> {
+    let trimmed = job_id.trim();
+    if trimmed.is_empty() {
+        return Err("Invalid job ID".to_string());
+    }
+
+    let db = state.storage.db();
+    let job = db
+        .get_job_by_id(trimmed)?
+        .ok_or_else(|| format!("Print job '{trimmed}' not found"))?;
+
+    if job.status == JobStatus::Printed {
+        return Err("This print job has already been printed".to_string());
+    }
+    if job.status == JobStatus::Printing {
+        return Err("This print job is already printing".to_string());
+    }
+    if job.status == JobStatus::Expired {
+        return Err("This print job has expired and its files were deleted".to_string());
+    }
+    if job.status == JobStatus::Cancelled {
+        return Err("This print job was cancelled".to_string());
+    }
+
+    let mut overrides = printer_overrides.unwrap_or_default();
+    if let Some(ref p_name) = printer_name {
+        let trimmed_p = p_name.trim();
+        if !trimmed_p.is_empty() {
+            for f in &job.files {
+                overrides
+                    .entry(f.file_id.clone())
+                    .or_insert_with(|| trimmed_p.to_string());
+            }
+        }
+    }
+    let overrides_ref = if overrides.is_empty() {
+        None
+    } else {
+        Some(&overrides)
+    };
+
+    let cfg = db.get_config()?;
+    let configured_printers = db.get_configured_printers().unwrap_or_default();
+    db.update_job_status(&job.id, JobStatus::Printing)?;
+    state.relay.send_job_status(&job.id, "printing", None);
+    state.logger.log(
+        "INFO",
+        &format!("Direct printing started for job {} (OTP {})", job.id, job.otp),
+    );
+
+    if let Err(err) = print_job_files_pooled(
+        &job.files,
+        job.copies,
+        job.color,
+        &configured_printers,
+        cfg.default_printer.as_deref(),
+        Some(&cfg.supported_paper_sizes),
+        overrides_ref,
+    ) {
+        let _ = db.update_job_status(&job.id, JobStatus::Failed);
+        state.relay.send_job_status(&job.id, "failed", Some(&err));
+        state.logger.log(
+            "ERROR",
+            &format!("Direct print failed for job {} (OTP {}): {}", job.id, job.otp, err),
+        );
+        return Err(err);
+    }
+
+    db.update_job_status(&job.id, JobStatus::Printed)?;
+    state.relay.send_job_status(&job.id, "printed", None);
+    state.logger.log(
+        "INFO",
+        &format!("Direct print succeeded for job {} (OTP {})", job.id, job.otp),
+    );
+
+    delete_job_files(&job, &state.storage.jobs_dir());
+    state.logger.log(
+        "INFO",
+        &format!("Deleted completed print files for job {} (OTP {})", job.id, job.otp),
+    );
+
+    let updated_job = db.get_job_by_id(&job.id)?.unwrap_or(job);
+
+    Ok(PrintResult {
+        job: updated_job,
+        message: "Print job sent to printer directly".to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn get_configured_printers(
+    state: State<'_, AppState>,
+) -> Result<Vec<ConfiguredPrinter>, String> {
+    let db = state.storage.db();
+    let saved = db.get_configured_printers()?;
+    let system_printers = list_system_printers();
+
+    let mut result = Vec::new();
+    let mut saved_map: std::collections::HashMap<String, ConfiguredPrinter> = saved
+        .into_iter()
+        .map(|p| (p.name.clone(), p))
+        .collect();
+
+    for sp in &system_printers {
+        if let Some(mut existing) = saved_map.remove(&sp.name) {
+            if sp.is_default && !existing.is_default {
+                existing.is_default = true;
+            }
+            result.push(existing);
+        } else {
+            let mut caps = vec!["bw".to_string(), "a4".to_string()];
+            let lower_name = sp.name.to_lowercase();
+            if lower_name.contains("color")
+                || lower_name.contains("colour")
+                || lower_name.contains("clx")
+            {
+                caps.push("color".to_string());
+            }
+            if lower_name.contains("a3")
+                || lower_name.contains("wide")
+                || lower_name.contains("large")
+            {
+                caps.push("a3".to_string());
+            }
+            result.push(ConfiguredPrinter {
+                id: sp.name.clone(),
+                name: sp.name.clone(),
+                nickname: None,
+                enabled: true,
+                pool: if caps.contains(&"color".to_string()) {
+                    PrinterPoolType::Color
+                } else {
+                    PrinterPoolType::Bw
+                },
+                capabilities: caps,
+                is_default: sp.is_default,
+            });
+        }
+    }
+
+    for (_, remaining) in saved_map {
+        result.push(remaining);
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn save_configured_printers(
+    state: State<'_, AppState>,
+    printers: Vec<ConfiguredPrinter>,
+) -> Result<Vec<ConfiguredPrinter>, String> {
+    let db = state.storage.db();
+    let saved = db.save_configured_printers(&printers)?;
+    state.logger.log(
+        "INFO",
+        &format!("Saved {} configured printer(s)", saved.len()),
+    );
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn test_print(printer_name: String) -> Result<String, String> {
+    print_test_page(&printer_name)
 }
 
 #[tauri::command]
@@ -307,6 +483,7 @@ pub fn connect_relay(
             default_printer: None,
             supported_paper_sizes: None,
             kiosk_mode: None,
+            rush_mode: None,
         })?
     } else {
         db.get_config()?

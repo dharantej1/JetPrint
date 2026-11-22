@@ -58,6 +58,73 @@ impl JobStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrinterPoolType {
+    Bw,
+    Color,
+    LargeFormat,
+    Default,
+}
+
+impl PrinterPoolType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PrinterPoolType::Bw => "bw",
+            PrinterPoolType::Color => "color",
+            PrinterPoolType::LargeFormat => "large_format",
+            PrinterPoolType::Default => "default",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "bw" | "b&w" | "monochrome" => PrinterPoolType::Bw,
+            "color" | "colour" => PrinterPoolType::Color,
+            "large_format" | "largeformat" | "large" => PrinterPoolType::LargeFormat,
+            _ => PrinterPoolType::Default,
+        }
+    }
+}
+
+impl std::fmt::Display for PrinterPoolType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_pool_type() -> PrinterPoolType {
+    PrinterPoolType::Default
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfiguredPrinter {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub nickname: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_pool_type")]
+    pub pool: PrinterPoolType,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterPoolConfig {
+    pub pool_type: PrinterPoolType,
+    pub printer_ids: Vec<String>,
+}
+
 pub fn default_supported_paper_sizes() -> Vec<String> {
     vec!["A4".to_string()]
 }
@@ -76,6 +143,7 @@ pub struct AppConfig {
     pub kiosk_mode: KioskMode,
     pub setup_complete: bool,
     pub exe_fingerprint: Option<String>,
+    pub rush_mode: bool,
 }
 
 pub type KioskConfig = AppConfig;
@@ -108,6 +176,8 @@ pub struct KioskState {
     pub existing_data_prompt: bool,
     pub existing_job_count: usize,
     pub storage_path: String,
+    #[serde(default)]
+    pub rush_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +196,7 @@ pub struct UpdateSettingsInput {
     pub default_printer: Option<String>,
     pub supported_paper_sizes: Option<Vec<String>>,
     pub kiosk_mode: Option<KioskMode>,
+    pub rush_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +275,8 @@ pub struct JobFile {
     pub pages: u32,
     #[serde(default)]
     pub settings: Option<FilePrintSettings>,
+    #[serde(default)]
+    pub assigned_printer: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

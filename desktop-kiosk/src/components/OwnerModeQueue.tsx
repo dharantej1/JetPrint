@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Printer,
   RefreshCw,
@@ -9,9 +9,11 @@ import {
   ScrollText,
   Ban,
   XCircle,
+  Zap,
+  ChevronDown,
 } from "lucide-react";
-import type { PrintJob } from "../types";
-import { openLogsWindow } from "../api/tauri";
+import type { ConfiguredPrinter, PrintJob } from "../types";
+import { getConfiguredPrinters, openLogsWindow } from "../api/tauri";
 
 export function getTodayLocalDate(): string {
   const now = new Date();
@@ -38,15 +40,18 @@ function formatJobTime(createdAt: string, includeDate: boolean): string {
   });
 }
 
-interface OwnerModeQueueProps {
+export interface OwnerModeQueueProps {
   jobs: PrintJob[];
   selectedDate: string | null;
   onDateChange: (date: string | null) => void;
   onRefresh: () => void;
-  onPrintJob: (otp: string) => void;
+  onPrintJob: (jobOrOtp: PrintJob | string, printerOverride?: string) => void;
   onCancelJob: (jobId: string) => void;
   printingOtp: string | null;
   cancellingJobId: string | null;
+  rushHourEnabled?: boolean;
+  onToggleRushHour?: (enabled: boolean) => void;
+  configuredPrinters?: ConfiguredPrinter[];
 }
 
 export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
@@ -58,10 +63,30 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
   onCancelJob,
   printingOtp,
   cancellingJobId,
+  rushHourEnabled = false,
+  onToggleRushHour,
+  configuredPrinters: initialPrinters,
 }) => {
   const today = getTodayLocalDate();
   const isToday = selectedDate === today;
   const isAll = selectedDate === null;
+
+  const [printers, setPrinters] = useState<ConfiguredPrinter[]>(
+    initialPrinters || []
+  );
+  const [fileOverrides, setFileOverrides] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (initialPrinters && initialPrinters.length > 0) {
+      setPrinters(initialPrinters);
+    } else {
+      getConfiguredPrinters()
+        .then((list) => {
+          if (list && list.length > 0) setPrinters(list);
+        })
+        .catch(() => {});
+    }
+  }, [initialPrinters]);
 
   const emptyMessage = isToday
     ? "No print jobs for today yet."
@@ -69,16 +94,47 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
       ? `No print jobs for ${selectedDate}.`
       : "No print jobs in queue yet.";
 
+  const defaultPrinterName =
+    printers.find((p) => p.isDefault)?.nickname ||
+    printers.find((p) => p.isDefault)?.name ||
+    (printers.length > 0 ? printers[0].nickname || printers[0].name : "Default");
+
   return (
     <section className="panel-card" style={{ gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700 }}>Owner Mode — Print Queue</h2>
           <p style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>
             Recent jobs received from Cloud Relay. Print directly or verify OTP.
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* Rush Hour Auto-Print Toggle */}
+          <button
+            type="button"
+            className={`rush-hour-toggle-btn ${rushHourEnabled ? "active" : ""}`}
+            onClick={() => onToggleRushHour?.(!rushHourEnabled)}
+            title={
+              rushHourEnabled
+                ? "Rush Hour Auto-Print is active: Incoming jobs print automatically"
+                : "Enable Rush Hour Auto-Print (auto-prints incoming jobs)"
+            }
+          >
+            <Zap size={14} className={rushHourEnabled ? "rush-icon-pulse" : ""} />
+            <span>Rush Hour Auto-Print</span>
+            <span className={`rush-indicator ${rushHourEnabled ? "on" : "off"}`}>
+              {rushHourEnabled ? "ON" : "OFF"}
+            </span>
+          </button>
+
           <button
             type="button"
             className="btn-secondary"
@@ -94,6 +150,15 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
           </button>
         </div>
       </div>
+
+      {rushHourEnabled && (
+        <div className="rush-hour-active-banner">
+          <Zap size={15} className="rush-icon-pulse" />
+          <span>
+            <strong>⚡ Rush Hour Auto-Print Active:</strong> Incoming print jobs automatically print upon arrival without manual OTP entry.
+          </span>
+        </div>
+      )}
 
       <div className="queue-filter-bar">
         <div className="queue-filter-group">
@@ -157,24 +222,83 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                 : isFailed
                   ? "#fca5a5"
                   : "#fbbf24";
+
             return (
               <div key={job.id} className="job-row">
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <FileText size={15} color="#818cf8" />
-                    <span style={{ fontWeight: 600 }}>OTP: {job.otp}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <FileText size={16} color="#818cf8" />
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>OTP: {job.otp}</span>
                     <span style={{ color: "#94a3b8", fontSize: 12 }}>
                       • {job.copies} {job.copies === 1 ? "copy" : "copies"} •{" "}
                       {job.color ? "Color" : "B/W"} • {job.files.length} file(s)
                       {timeLabel ? ` • ${timeLabel}` : ""}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b" }}>
-                    {job.files.map((f) => f.filename || "Document").join(", ")}
+
+                  {/* Per-File List with Assigned Printer Badges and Overrides */}
+                  <div className="job-files-container">
+                    {job.files.map((file, idx) => {
+                      const fileKey = `${job.id}_${file.fileId || idx}`;
+                      const override = fileOverrides[fileKey];
+                      const assignedPrinter =
+                        override ||
+                        file.assignedPrinter ||
+                        defaultPrinterName ||
+                        "Auto (Pool)";
+
+                      return (
+                        <div key={file.fileId || idx} className="job-file-row">
+                          <div className="job-file-info">
+                            <span className="job-file-bullet">•</span>
+                            <span className="job-file-name" title={file.filename}>
+                              {file.filename || `File ${idx + 1}`}
+                            </span>
+                            {file.pages ? (
+                              <span className="job-file-pages">({file.pages}p)</span>
+                            ) : null}
+                          </div>
+
+                          <div className="job-file-printer-section">
+                            <span
+                              className="file-printer-badge"
+                              title={`Currently assigned to: ${assignedPrinter}`}
+                            >
+                              <Printer size={11} />
+                              <span className="printer-name-text">{assignedPrinter}</span>
+                            </span>
+
+                            <div className="file-printer-select-wrap">
+                              <select
+                                className="file-printer-select"
+                                value={override || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setFileOverrides((prev) => ({
+                                    ...prev,
+                                    [fileKey]: val,
+                                  }));
+                                }}
+                                disabled={isDisabledForPrint}
+                                title="Override assigned printer for this file"
+                              >
+                                <option value="">Override Printer...</option>
+                                {printers.map((p) => (
+                                  <option key={p.id || p.name} value={p.name}>
+                                    {p.nickname || p.name} ({p.pool.toUpperCase()})
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown size={11} className="select-arrow-icon" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                   <span
                     className={`job-status-badge ${isExpired ? "expired" : isCancelled ? "cancelled" : ""}`}
                     style={{
@@ -212,9 +336,10 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                     </button>
                   )}
 
+                  {/* Direct Print Button */}
                   <button
                     type="button"
-                    className="btn-primary"
+                    className="btn-primary direct-print-btn"
                     style={{ padding: "7px 12px", fontSize: 12 }}
                     disabled={isDisabledForPrint || printingOtp === job.otp || cancellingJobId === job.id}
                     title={
@@ -222,11 +347,19 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                         ? "Job was cancelled and its files were deleted"
                         : isExpired
                           ? "Print files expired after 2 days"
-                          : undefined
+                          : "Print job directly bypassing OTP"
                     }
-                    onClick={() => onPrintJob(job.otp)}
+                    onClick={() => {
+                      const firstOverrideKey = Object.keys(fileOverrides).find((k) =>
+                        k.startsWith(`${job.id}_`)
+                      );
+                      const printerOverride = firstOverrideKey
+                        ? fileOverrides[firstOverrideKey]
+                        : undefined;
+                      onPrintJob(job, printerOverride);
+                    }}
                   >
-                    <Printer size={14} />
+                    <Zap size={14} />
                     <span>
                       {isCancelled
                         ? "Cancelled"
@@ -234,7 +367,7 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                           ? "Expired"
                           : printingOtp === job.otp
                             ? "Printing..."
-                            : "Print"}
+                            : "⚡ Direct Print"}
                     </span>
                   </button>
                 </div>
@@ -246,3 +379,4 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
     </section>
   );
 };
+export default OwnerModeQueue;

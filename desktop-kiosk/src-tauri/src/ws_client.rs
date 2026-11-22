@@ -73,6 +73,10 @@ impl RelayHandle {
     }
 
     pub fn trigger_reconnect(&self) {
+        if let Ok(mut guard) = self.status.lock() {
+            guard.0 = RelayConnectionStatus::Connecting;
+            guard.1 = Some("Reconnecting to relay...".to_string());
+        }
         self.reconnect_notify.notify_one();
     }
 
@@ -221,6 +225,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
 
             let ws_url = build_ws_url(&config.relay_url);
             let mut active_token = config.auth_token.clone();
+            let mut was_reconnect_requested = false;
 
             set_status(
                 &app,
@@ -277,6 +282,7 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                     loop {
                         tokio::select! {
                             _ = relay.reconnect_notify.notified() => {
+                                was_reconnect_requested = true;
                                 let _ = write.close().await;
                                 break;
                             }
@@ -357,7 +363,17 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                         }
                     }
 
-                    if !had_error {
+                    if was_reconnect_requested {
+                        set_status(
+                            &app,
+                            &relay,
+                            &config.machine_id,
+                            false,
+                            RelayConnectionStatus::Connecting,
+                            Some("Reconnecting to relay..."),
+                            Some(None),
+                        );
+                    } else if !had_error {
                         logger.log("WARN", "Disconnected from Cloud Relay");
                         set_status(
                             &app,
@@ -385,9 +401,11 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                 }
             }
 
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                _ = relay.reconnect_notify.notified() => {}
+            if !was_reconnect_requested {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                    _ = relay.reconnect_notify.notified() => {}
+                }
             }
         }
     });
@@ -512,6 +530,7 @@ async fn handle_ws_text(
                     local_path: dest.to_string_lossy().to_string(),
                     pages: f.page_count,
                     settings: f.settings,
+                    assigned_printer: None,
                 });
             }
 
