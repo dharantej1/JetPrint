@@ -129,9 +129,7 @@ export async function checkPdfNeedsNormalization(
       const { width, height } = page.getSize();
       const rot = ((page.getRotation().angle % 360) + 360) % 360;
       if (rot !== 0) return true;
-      const visualW = rot === 90 || rot === 270 ? height : width;
-      const visualH = rot === 90 || rot === 270 ? width : height;
-      const pageIsLandscape = visualW > visualH;
+      const pageIsLandscape = width > height;
       if (pageIsLandscape !== targetIsLandscape) return true;
     }
     return false;
