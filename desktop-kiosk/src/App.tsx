@@ -24,7 +24,8 @@ import { FirstRunWizard } from "./components/FirstRunWizard";
 import { ExistingDataModal } from "./components/ExistingDataModal";
 import { OwnerUnlockModal } from "./components/OwnerUnlockModal";
 import { DedicatedSettingsPage } from "./components/DedicatedSettingsPage";
-import { OwnerModeQueue, getTodayLocalDate } from "./components/OwnerModeQueue";
+import { OwnerModeQueue } from "./components/OwnerModeQueue";
+import { getTodayLocalDate } from "./utils";
 import { LogsWindow } from "./components/LogsWindow";
 import { useKioskLayout } from "./hooks/useKioskLayout";
 
@@ -213,22 +214,14 @@ const KioskApp: React.FC = () => {
       setPrintingJobOtp(otp);
       try {
         if (jobId) {
-          try {
-            await printJobDirect(jobId, printerOverride);
-          } catch (directErr) {
-            console.warn(
-              "printJobDirect failed, falling back to verifyOtpAndPrint:",
-              directErr
-            );
-            await verifyOtpAndPrint(otp);
-          }
+          await printJobDirect(jobId, printerOverride);
         } else {
           await verifyOtpAndPrint(otp);
         }
-        await refreshJobs();
       } catch (err) {
-        console.error("Direct print failed:", err);
+        console.error("Print execution error:", err);
       } finally {
+        await refreshJobs();
         setPrintingJobOtp(null);
       }
     },
@@ -239,7 +232,9 @@ const KioskApp: React.FC = () => {
     try {
       const state = await getKioskState();
       setKioskState(state);
-      setRushHourEnabled(Boolean(state.rushMode || state.rushHourAutoPrint));
+      setRushHourEnabled(
+        state.kioskMode === "owner" && Boolean(state.rushMode || state.rushHourAutoPrint)
+      );
       setRelayStatus(state.relayStatus);
       setRelayMessage(state.relayMessage);
       setRelayAuthError(state.relayAuthError);
@@ -428,6 +423,7 @@ const KioskApp: React.FC = () => {
   };
 
   const handleToggleRushHour = async (enabled: boolean) => {
+    if (kioskState.kioskMode !== "owner") return;
     setRushHourEnabled(enabled);
     try {
       const next = await updateSettings({
@@ -435,7 +431,9 @@ const KioskApp: React.FC = () => {
         rushHourAutoPrint: enabled,
       });
       setKioskState(next);
-      setRushHourEnabled(Boolean(next.rushMode || next.rushHourAutoPrint));
+      setRushHourEnabled(
+        next.kioskMode === "owner" && Boolean(next.rushMode || next.rushHourAutoPrint)
+      );
     } catch (err) {
       console.warn("Failed to persist rushMode setting:", err);
     }
@@ -476,7 +474,9 @@ const KioskApp: React.FC = () => {
         onBackToKiosk={() => setIsSettingsUnlocked(false)}
         onStateUpdated={(next) => {
           setKioskState(next);
-          setRushHourEnabled(Boolean(next.rushMode || next.rushHourAutoPrint));
+          setRushHourEnabled(
+            next.kioskMode === "owner" && Boolean(next.rushMode || next.rushHourAutoPrint)
+          );
           setRelayStatus(next.relayStatus);
           setRelayMessage(next.relayMessage);
           setRelayAuthError(next.relayAuthError);
@@ -593,7 +593,7 @@ const KioskApp: React.FC = () => {
 
       <main
         ref={containerRef}
-        className={`kiosk-main kiosk-${layoutMode}`}
+        className={`kiosk-main kiosk-${layoutMode} ${kioskState.kioskMode === "owner" ? "kiosk-owner-layout" : ""}`}
         data-layout-mode={layoutMode}
       >
         {kioskState.kioskMode === "owner" ? (

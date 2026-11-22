@@ -186,18 +186,18 @@ pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
 }
 
 #[tauri::command]
-pub fn verify_otp_and_print(
+pub async fn verify_otp_and_print(
     state: State<'_, AppState>,
     otp: String,
 ) -> Result<PrintResult, String> {
-    let trimmed = otp.trim();
+    let trimmed = otp.trim().to_string();
     if trimmed.len() != 6 || !trimmed.chars().all(|c| c.is_ascii_digit()) {
         return Err("Please enter a valid 6-digit OTP".to_string());
     }
 
     let db = state.storage.db();
     let job = db
-        .get_job_by_otp(trimmed)?
+        .get_job_by_otp(&trimmed)?
         .ok_or_else(|| "No print job found for this OTP".to_string())?;
 
     if job.status == JobStatus::Printed {
@@ -221,15 +221,39 @@ pub fn verify_otp_and_print(
         .logger
         .log("INFO", &format!("Printing started for job {} (OTP {})", job.id, job.otp));
 
-    if let Err(err) = print_job_files_pooled(
-        &job.files,
-        job.copies,
-        job.color,
-        &configured_printers,
-        cfg.default_printer.as_deref(),
-        Some(&cfg.supported_paper_sizes),
-        None,
-    ) {
+    let files = job.files.clone();
+    let copies = job.copies;
+    let color = job.color;
+    let configured_printers_clone = configured_printers.clone();
+    let default_printer = cfg.default_printer.clone();
+    let supported_sizes = cfg.supported_paper_sizes.clone();
+
+    let print_timeout = std::time::Duration::from_secs(30);
+    let print_result = tokio::time::timeout(
+        print_timeout,
+        tokio::task::spawn_blocking(move || {
+            print_job_files_pooled(
+                &files,
+                copies,
+                color,
+                &configured_printers_clone,
+                default_printer.as_deref(),
+                Some(&supported_sizes),
+                None,
+            )
+        }),
+    )
+    .await;
+
+    let res = match print_result {
+        Ok(spawn_res) => match spawn_res {
+            Ok(inner_res) => inner_res,
+            Err(e) => Err(format!("Print task error: {e}")),
+        },
+        Err(_) => Err("Printing timed out after 30 seconds. Please check printer connection.".to_string()),
+    };
+
+    if let Err(err) = res {
         let _ = db.update_job_status(&job.id, JobStatus::Failed);
         state.relay.send_job_status(&job.id, "failed", Some(&err));
         state.logger.log(
@@ -261,7 +285,7 @@ pub fn verify_otp_and_print(
 }
 
 #[tauri::command]
-pub fn print_job_direct(
+pub async fn print_job_direct(
     state: State<'_, AppState>,
     job_id: String,
     printer_name: Option<String>,
@@ -301,11 +325,6 @@ pub fn print_job_direct(
             }
         }
     }
-    let overrides_ref = if overrides.is_empty() {
-        None
-    } else {
-        Some(&overrides)
-    };
 
     let cfg = db.get_config()?;
     let configured_printers = db.get_configured_printers().unwrap_or_default();
@@ -316,15 +335,45 @@ pub fn print_job_direct(
         &format!("Direct printing started for job {} (OTP {})", job.id, job.otp),
     );
 
-    if let Err(err) = print_job_files_pooled(
-        &job.files,
-        job.copies,
-        job.color,
-        &configured_printers,
-        cfg.default_printer.as_deref(),
-        Some(&cfg.supported_paper_sizes),
-        overrides_ref,
-    ) {
+    let files = job.files.clone();
+    let copies = job.copies;
+    let color = job.color;
+    let configured_printers_clone = configured_printers.clone();
+    let default_printer = cfg.default_printer.clone();
+    let supported_sizes = cfg.supported_paper_sizes.clone();
+    let overrides_clone = overrides.clone();
+
+    let print_timeout = std::time::Duration::from_secs(30);
+    let print_result = tokio::time::timeout(
+        print_timeout,
+        tokio::task::spawn_blocking(move || {
+            let overrides_ref = if overrides_clone.is_empty() {
+                None
+            } else {
+                Some(&overrides_clone)
+            };
+            print_job_files_pooled(
+                &files,
+                copies,
+                color,
+                &configured_printers_clone,
+                default_printer.as_deref(),
+                Some(&supported_sizes),
+                overrides_ref,
+            )
+        }),
+    )
+    .await;
+
+    let res = match print_result {
+        Ok(spawn_res) => match spawn_res {
+            Ok(inner_res) => inner_res,
+            Err(e) => Err(format!("Print task error: {e}")),
+        },
+        Err(_) => Err("Printing timed out after 30 seconds. Please check printer connection.".to_string()),
+    };
+
+    if let Err(err) = res {
         let _ = db.update_job_status(&job.id, JobStatus::Failed);
         state.relay.send_job_status(&job.id, "failed", Some(&err));
         state.logger.log(
@@ -428,8 +477,10 @@ pub fn save_configured_printers(
 }
 
 #[tauri::command]
-pub fn test_print(printer_name: String) -> Result<String, String> {
-    print_test_page(&printer_name)
+pub async fn test_print(printer_name: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || print_test_page(&printer_name))
+        .await
+        .map_err(|e| format!("Print worker error: {e}"))?
 }
 
 #[tauri::command]

@@ -19,6 +19,7 @@ import {
   Zap,
   Check,
   Keyboard as KeyboardIcon,
+  ChevronDown,
 } from "lucide-react";
 import type {
   ConfiguredPrinter,
@@ -123,8 +124,29 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
   // Mode state
   const [kioskMode, setKioskMode] = useState<KioskMode>(kioskState.kioskMode);
   const [rushHourAutoPrint, setRushHourAutoPrint] = useState<boolean>(
-    Boolean(kioskState.rushHourAutoPrint ?? kioskState.rushMode)
+    kioskState.kioskMode === "owner" && Boolean(kioskState.rushHourAutoPrint ?? kioskState.rushMode)
   );
+
+  // Printer Master-Detail & pool filter state
+  const [selectedPrinterKey, setSelectedPrinterKey] = useState<string>("");
+  const [poolFilter, setPoolFilter] = useState<string>("all");
+
+  useEffect(() => {
+    if (configuredPrinters.length > 0) {
+      if (
+        !selectedPrinterKey ||
+        !configuredPrinters.some(
+          (p) => (p.systemName || p.name) === selectedPrinterKey
+        )
+      ) {
+        const def =
+          configuredPrinters.find(
+            (p) => p.isDefault || p.name === defaultPrinterName
+          ) || configuredPrinters[0];
+        setSelectedPrinterKey(def.systemName || def.name);
+      }
+    }
+  }, [configuredPrinters, defaultPrinterName, selectedPrinterKey]);
 
   // Relay state
   const [relayUrl, setRelayUrl] = useState<string>(kioskState.relayUrl);
@@ -348,8 +370,8 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         kioskMode,
         relayUrl: relayUrl.trim(),
         configuredPrinters,
-        rushMode: rushHourAutoPrint,
-        rushHourAutoPrint,
+        rushMode: kioskMode === "owner" ? rushHourAutoPrint : false,
+        rushHourAutoPrint: kioskMode === "owner" ? rushHourAutoPrint : false,
       });
 
       // 3. Storage folder update if changed
@@ -891,439 +913,347 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                 </button>
               </div>
 
-              {/* Pool Routing Guide Card */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                  padding: "16px",
-                  borderRadius: "var(--radius-md)",
-                  background: "rgba(15, 23, 42, 0.55)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
+              {/* Interactive Pool Filter Tabs */}
+              <div className="pool-filter-tabs">
+                <button
+                  type="button"
+                  className={`pool-tab-btn ${poolFilter === "all" ? "active" : ""}`}
+                  onClick={() => setPoolFilter("all")}
+                >
+                  <div className="pool-tab-top">
+                    <span className="pool-tab-label">All Available</span>
+                    <span className="pool-tab-badge">{configuredPrinters.length}</span>
+                  </div>
+                  <span className="pool-tab-desc">All system printers</span>
+                </button>
+
                 {POOL_OPTIONS.map((pool) => {
                   const assigned = configuredPrinters.filter(
                     (p) => p.pool === pool.id && p.enabled
                   );
+                  const isFilterActive = poolFilter === pool.id;
                   return (
-                    <div
+                    <button
                       key={pool.id}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 4,
-                        padding: "10px 14px",
-                        borderRadius: "var(--radius-sm)",
-                        background: "rgba(30, 41, 59, 0.4)",
-                        border: "1px solid rgba(148, 163, 184, 0.12)",
-                      }}
+                      type="button"
+                      className={`pool-tab-btn ${isFilterActive ? "active" : ""}`}
+                      onClick={() => setPoolFilter(pool.id)}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                        }}
-                      >
+                      <div className="pool-tab-top">
+                        <span className="pool-tab-label">{pool.label}</span>
                         <span
-                          style={{
-                            fontWeight: 700,
-                            fontSize: 13,
-                            color: "#c7d2fe",
-                          }}
+                          className={`pool-tab-badge ${assigned.length > 0 ? "has-printers" : ""}`}
                         >
-                          {pool.label}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            padding: "2px 8px",
-                            borderRadius: 999,
-                            background:
-                              assigned.length > 0
-                                ? "rgba(16, 185, 129, 0.2)"
-                                : "rgba(245, 158, 11, 0.2)",
-                            color:
-                              assigned.length > 0 ? "#10b981" : "#f59e0b",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {assigned.length} printer{assigned.length === 1 ? "" : "s"}
+                          {assigned.length} {assigned.length === 1 ? "printer" : "printers"}
                         </span>
                       </div>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: "var(--text-muted)",
-                        }}
-                      >
-                        {pool.description}
-                      </span>
-                    </div>
+                      <span className="pool-tab-desc">{pool.description}</span>
+                    </button>
                   );
                 })}
               </div>
 
-              {/* Detected Printers Table / List */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                }}
-              >
-                {configuredPrinters.length === 0 ? (
-                  <div
-                    style={{
-                      padding: "32px",
-                      textAlign: "center",
-                      borderRadius: "var(--radius-md)",
-                      background: "rgba(15, 23, 42, 0.5)",
-                      border: "1px dashed var(--border-strong)",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    <p style={{ margin: 0, fontSize: 14 }}>
-                      {loadingPrinters
-                        ? "Scanning for connected printers..."
-                        : "No printers detected. Connect a printer or click 'Rescan System Printers'."}
-                    </p>
-                  </div>
-                ) : (
-                  configuredPrinters.map((printer) => {
-                    const printerKey = printer.systemName || printer.name;
-                    const testStatus = testPrintStatus[printerKey];
-                    const isSystemDef = detectedPrinters.find(
-                      (p) => p.name === printer.name
-                    )?.isDefault;
+              {/* Master-Detail Printer Layout */}
+              {configuredPrinters.length === 0 ? (
+                <div className="printers-empty-panel">
+                  <p>
+                    {loadingPrinters
+                      ? "Scanning for connected printers..."
+                      : "No printers detected. Connect a printer or click 'Rescan System Printers'."}
+                  </p>
+                </div>
+              ) : (
+                <div className="printers-master-detail-grid">
+                  {/* Master List Column */}
+                  <div className="printers-master-pane">
+                    <div className="pane-header-title">
+                      <span>Available Printers</span>
+                      <span className="count-pill">
+                        {
+                          configuredPrinters.filter(
+                            (p) => poolFilter === "all" || p.pool === poolFilter
+                          ).length
+                        }
+                      </span>
+                    </div>
 
-                    return (
-                      <div
-                        key={printerKey}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 14,
-                          padding: "18px 20px",
-                          borderRadius: "var(--radius-md)",
-                          background: printer.enabled
-                            ? "rgba(17, 24, 39, 0.85)"
-                            : "rgba(15, 23, 42, 0.4)",
-                          border:
-                            printer.isDefault || defaultPrinterName === printer.name
-                              ? "1px solid #818cf8"
-                              : "1px solid var(--border-subtle)",
-                          boxShadow:
-                            printer.isDefault || defaultPrinterName === printer.name
-                              ? "0 0 16px rgba(99, 102, 241, 0.15)"
-                              : "none",
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        {/* Top Bar of Printer Card */}
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            flexWrap: "wrap",
-                            gap: 12,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 12,
-                            }}
-                          >
-                            {/* Enabled Toggle Switch */}
-                            <label
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 8,
-                                cursor: "pointer",
-                                fontSize: 13,
-                                fontWeight: 600,
-                              }}
+                    <div className="printers-list-scroll">
+                      {configuredPrinters
+                        .filter(
+                          (p) => poolFilter === "all" || p.pool === poolFilter
+                        )
+                        .map((printer) => {
+                          const printerKey = printer.systemName || printer.name;
+                          const isSelected =
+                            selectedPrinterKey === printerKey ||
+                            selectedPrinterKey === printer.name;
+                          const isDefaultPr =
+                            printer.isDefault || defaultPrinterName === printer.name;
+
+                          return (
+                            <div
+                              key={printerKey}
+                              className={`printer-item-card ${isSelected ? "selected" : ""} ${!printer.enabled ? "disabled" : ""}`}
+                              onClick={() => setSelectedPrinterKey(printerKey)}
                             >
-                              <input
-                                type="checkbox"
-                                checked={printer.enabled}
-                                onChange={(e) =>
-                                  handleUpdatePrinterField(printerKey, {
-                                    enabled: e.target.checked,
-                                  })
-                                }
-                                style={{
-                                  width: 18,
-                                  height: 18,
-                                  accentColor: "var(--accent-primary)",
-                                  cursor: "pointer",
-                                }}
-                              />
-                              <span
-                                style={{
-                                  color: printer.enabled
-                                    ? "#f8fafc"
-                                    : "var(--text-muted)",
-                                }}
-                              >
-                                {printer.enabled ? "Enabled" : "Disabled"}
-                              </span>
-                            </label>
-
-                            <div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 16,
-                                    fontWeight: 700,
-                                    color: printer.enabled
-                                      ? "#f8fafc"
-                                      : "#64748b",
-                                  }}
-                                >
-                                  {printer.nickname || printer.name}
-                                </span>
-
-                                {(printer.isDefault ||
-                                  defaultPrinterName === printer.name) && (
+                              <div className="printer-item-header">
+                                <div className="printer-status-name">
                                   <span
-                                    style={{
-                                      fontSize: 11,
-                                      padding: "2px 8px",
-                                      borderRadius: 999,
-                                      background: "rgba(99, 102, 241, 0.2)",
-                                      color: "#a5b4fc",
-                                      fontWeight: 600,
-                                      border: "1px solid rgba(99, 102, 241, 0.4)",
-                                    }}
+                                    className={`status-dot ${printer.enabled ? "enabled" : "disabled"}`}
+                                  />
+                                  <span
+                                    className="printer-card-name"
+                                    title={printer.nickname || printer.name}
                                   >
-                                    Default Printer
+                                    {printer.nickname || printer.name}
+                                  </span>
+                                </div>
+                                {isDefaultPr && (
+                                  <span className="badge-default">Default</span>
+                                )}
+                              </div>
+
+                              <div className="printer-item-footer">
+                                <span className="printer-driver-text">
+                                  {printer.systemName || printer.name}
+                                </span>
+                                <span
+                                  className={`pool-badge pool-${printer.pool || "default"}`}
+                                >
+                                  {printer.pool?.toUpperCase() || "DEFAULT"}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  {/* Detail Configuration Column */}
+                  <div className="printers-detail-pane">
+                    {(() => {
+                      const selectedPrinter =
+                        configuredPrinters.find(
+                          (p) =>
+                            p.systemName === selectedPrinterKey ||
+                            p.name === selectedPrinterKey
+                        ) || configuredPrinters[0];
+
+                      if (!selectedPrinter) {
+                        return (
+                          <div className="detail-empty-selection">
+                            <Printer
+                              size={36}
+                              style={{ opacity: 0.3, marginBottom: 8 }}
+                            />
+                            <p>
+                              Select a printer on the left to configure routing &amp; settings.
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      const printerKey =
+                        selectedPrinter.systemName || selectedPrinter.name;
+                      const testStatus = testPrintStatus[printerKey];
+                      const isSystemDef = detectedPrinters.find(
+                        (p) => p.name === selectedPrinter.name
+                      )?.isDefault;
+                      const isDefaultPr =
+                        selectedPrinter.isDefault ||
+                        defaultPrinterName === selectedPrinter.name;
+
+                      return (
+                        <div className="printer-detail-card">
+                          {/* Top Detail Header with Actions */}
+                          <div className="detail-card-header">
+                            <div className="detail-title-group">
+                              <div className="detail-name-row">
+                                <Printer size={20} className="detail-icon" />
+                                <h3 className="detail-printer-title">
+                                  {selectedPrinter.nickname || selectedPrinter.name}
+                                </h3>
+                                {isDefaultPr && (
+                                  <span className="badge-default-active">
+                                    ★ Default
                                   </span>
                                 )}
-
                                 {isSystemDef && (
-                                  <span
-                                    style={{
-                                      fontSize: 11,
-                                      padding: "2px 8px",
-                                      borderRadius: 999,
-                                      background: "rgba(148, 163, 184, 0.15)",
-                                      color: "#94a3b8",
-                                    }}
-                                  >
+                                  <span className="badge-os-default">
                                     OS Default
                                   </span>
                                 )}
                               </div>
-                              <span
-                                style={{
-                                  fontSize: 12,
-                                  color: "var(--text-muted)",
-                                }}
-                              >
-                                Driver: {printer.systemName}
+                              <span className="detail-system-name">
+                                Queue: {selectedPrinter.systemName || selectedPrinter.name}
                               </span>
                             </div>
-                          </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => handleSetDefaultPrinter(printer.name)}
-                              style={{
-                                fontSize: 12,
-                                padding: "6px 12px",
-                                borderColor:
-                                  defaultPrinterName === printer.name
-                                    ? "#818cf8"
-                                    : undefined,
-                              }}
-                            >
-                              {defaultPrinterName === printer.name
-                                ? "★ Default Selected"
-                                : "Set as Default"}
-                            </button>
-
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => handleTestPrint(printer)}
-                              disabled={Boolean(testStatus)}
-                              style={{
-                                fontSize: 12,
-                                padding: "6px 12px",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 6,
-                              }}
-                            >
-                              <Printer size={14} />
-                              <span>
-                                {testStatus || "Test Print"}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Nickname Input & Pool Selector Row */}
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(260px, 1fr))",
-                            gap: 14,
-                            paddingTop: 8,
-                            borderTop: "1px solid rgba(148, 163, 184, 0.1)",
-                          }}
-                        >
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label
-                              className="form-label"
-                              style={{ fontSize: 12, marginBottom: 4 }}
-                            >
-                              Display Nickname
-                            </label>
-                            <div
-                              className="input-with-vk"
-                              data-vk-field={`nickname:${printerKey}`}
-                            >
-                              <input
-                                type="text"
-                                value={printer.nickname ?? printer.name}
-                                onChange={(e) =>
-                                  handleUpdatePrinterField(printerKey, {
-                                    nickname: e.target.value,
-                                  })
-                                }
-                                placeholder="e.g. Front Counter B&W Laser"
-                              />
+                            <div className="detail-actions-group">
                               <button
                                 type="button"
-                                className="input-vk-btn"
+                                className="btn-secondary btn-detail-action"
                                 onClick={() =>
-                                  setActiveVk(
-                                    activeVk?.field === `nickname:${printerKey}`
-                                      ? null
-                                      : {
-                                          label: "Printer Nickname",
-                                          field: `nickname:${printerKey}`,
-                                          type: "text",
-                                        }
-                                  )
+                                  handleSetDefaultPrinter(selectedPrinter.name)
                                 }
-                                title="Toggle On-Screen Keyboard"
                               >
-                                <KeyboardIcon size={14} />
+                                {isDefaultPr
+                                  ? "★ Default Selected"
+                                  : "Set as Default"}
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn-secondary btn-detail-action"
+                                onClick={() => handleTestPrint(selectedPrinter)}
+                                disabled={Boolean(testStatus)}
+                              >
+                                <Printer size={14} />
+                                <span>{testStatus || "Test Print"}</span>
                               </button>
                             </div>
                           </div>
 
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label
-                              className="form-label"
-                              style={{ fontSize: 12, marginBottom: 4 }}
-                            >
-                              Pool Assignment
-                            </label>
-                            <select
-                              value={printer.pool || "default"}
-                              onChange={(e) =>
-                                handleUpdatePrinterField(printerKey, {
-                                  pool: e.target.value as PrinterPoolType,
-                                })
-                              }
-                              style={{ width: "100%" }}
-                            >
-                              <option value="bw">B&amp;W Pool (Monochrome)</option>
-                              <option value="color">Color Pool</option>
-                              <option value="large_format">
-                                Large Format Pool (A3 / Legal)
-                              </option>
-                              <option value="default">
-                                Default Pool (General Routing)
-                              </option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Capabilities Tags Row */}
-                        <div>
-                          <label
-                            className="form-label"
-                            style={{
-                              fontSize: 12,
-                              marginBottom: 6,
-                              display: "block",
-                            }}
-                          >
-                            Capability Tags (Smart Routing Attributes)
-                          </label>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 8,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {CAPABILITY_OPTIONS.map((cap) => {
-                              const active = printer.capabilities?.includes(cap);
-                              return (
-                                <button
-                                  key={cap}
-                                  type="button"
-                                  onClick={() =>
-                                    handleToggleCapability(printerKey, cap)
+                          {/* Configuration Form */}
+                          <div className="detail-form-body">
+                            {/* Enable / Disable Toggle Switch */}
+                            <div className="detail-form-row detail-switch-row">
+                              <div>
+                                <span className="detail-row-label">
+                                  Printer Routing Status
+                                </span>
+                                <p className="detail-row-desc">
+                                  Enable or disable this printer for kiosk jobs.
+                                </p>
+                              </div>
+                              <label className="toggle-switch-label">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPrinter.enabled}
+                                  onChange={(e) =>
+                                    handleUpdatePrinterField(printerKey, {
+                                      enabled: e.target.checked,
+                                    })
                                   }
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    padding: "5px 12px",
-                                    borderRadius: 999,
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                    border: active
-                                      ? "1px solid var(--accent-primary)"
-                                      : "1px solid rgba(148, 163, 184, 0.2)",
-                                    background: active
-                                      ? "rgba(99, 102, 241, 0.2)"
-                                      : "rgba(15, 23, 42, 0.6)",
-                                    color: active ? "#c7d2fe" : "#94a3b8",
-                                    transition: "all 0.15s ease",
-                                  }}
+                                />
+                                <span className="toggle-switch-slider" />
+                                <span className="toggle-switch-text">
+                                  {selectedPrinter.enabled
+                                    ? "Enabled"
+                                    : "Disabled"}
+                                </span>
+                              </label>
+                            </div>
+
+                            {/* Nickname & Pool Row */}
+                            <div className="detail-inputs-grid">
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">
+                                  Display Nickname
+                                </label>
+                                <div
+                                  className="input-with-vk"
+                                  data-vk-field={`nickname:${printerKey}`}
                                 >
-                                  <span>{cap}</span>
-                                  {active && <Check size={13} />}
-                                </button>
-                              );
-                            })}
+                                  <input
+                                    type="text"
+                                    value={
+                                      selectedPrinter.nickname ??
+                                      selectedPrinter.name
+                                    }
+                                    onChange={(e) =>
+                                      handleUpdatePrinterField(printerKey, {
+                                        nickname: e.target.value,
+                                      })
+                                    }
+                                    placeholder="e.g. Counter B&W Laser"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="input-vk-btn"
+                                    onClick={() =>
+                                      setActiveVk(
+                                        activeVk?.field === `nickname:${printerKey}`
+                                          ? null
+                                          : {
+                                              label: "Printer Nickname",
+                                              field: `nickname:${printerKey}`,
+                                              type: "text",
+                                            }
+                                      )
+                                    }
+                                    title="Toggle On-Screen Keyboard"
+                                  >
+                                    <KeyboardIcon size={14} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">
+                                  Pool Assignment
+                                </label>
+                                <div className="detail-select-wrap">
+                                  <select
+                                    value={selectedPrinter.pool || "default"}
+                                    onChange={(e) =>
+                                      handleUpdatePrinterField(printerKey, {
+                                        pool: e.target.value as PrinterPoolType,
+                                      })
+                                    }
+                                    className="detail-select"
+                                  >
+                                    <option value="bw">
+                                      B&amp;W Pool (Monochrome)
+                                    </option>
+                                    <option value="color">Color Pool</option>
+                                    <option value="large_format">
+                                      Large Format Pool (A3 / Legal)
+                                    </option>
+                                    <option value="default">
+                                      Default Pool (General Routing)
+                                    </option>
+                                  </select>
+                                  <ChevronDown
+                                    size={14}
+                                    className="detail-select-arrow"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Capabilities Tags */}
+                            <div className="detail-capabilities-section">
+                              <label className="form-label">
+                                Capability Tags (Smart Routing Attributes)
+                              </label>
+                              <div className="detail-caps-chips">
+                                {CAPABILITY_OPTIONS.map((cap) => {
+                                  const active =
+                                    selectedPrinter.capabilities?.includes(cap);
+                                  return (
+                                    <button
+                                      key={cap}
+                                      type="button"
+                                      onClick={() =>
+                                        handleToggleCapability(printerKey, cap)
+                                      }
+                                      className={`cap-chip-btn ${active ? "active" : ""}`}
+                                    >
+                                      <span>{cap}</span>
+                                      {active && <Check size={13} />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1700,106 +1630,127 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                 </div>
               </div>
 
-              {/* Rush Hour Auto-Print Card */}
-              <div
-                style={{
-                  padding: "20px",
-                  borderRadius: "var(--radius-md)",
-                  background: rushHourAutoPrint
-                    ? "rgba(245, 158, 11, 0.12)"
-                    : "rgba(17, 24, 39, 0.8)",
-                  border: rushHourAutoPrint
-                    ? "1px solid rgba(245, 158, 11, 0.4)"
-                    : "1px solid var(--border-subtle)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: 16,
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: "var(--radius-sm)",
-                      background: rushHourAutoPrint
-                        ? "rgba(245, 158, 11, 0.25)"
-                        : "rgba(30, 41, 59, 0.6)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: rushHourAutoPrint ? "#f59e0b" : "#94a3b8",
-                    }}
-                  >
-                    <Zap size={24} />
-                  </div>
-                  <div>
-                    <span
-                      style={{
-                        fontSize: 16,
-                        fontWeight: 700,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span>⚡ Rush Hour Auto-Print</span>
-                      {rushHourAutoPrint && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            padding: "2px 8px",
-                            borderRadius: 999,
-                            background: "rgba(245, 158, 11, 0.2)",
-                            color: "#f59e0b",
-                            fontWeight: 600,
-                          }}
-                        >
-                          ACTIVE
-                        </span>
-                      )}
-                    </span>
-                    <p
-                      style={{
-                        fontSize: 13,
-                        color: "var(--text-secondary)",
-                        margin: "4px 0 0 0",
-                      }}
-                    >
-                      In Owner Mode, automatically sends incoming cloud jobs straight to routed printer pools without requiring manual OTP confirmation.
-                    </p>
-                  </div>
-                </div>
-
-                <label
+              {/* Rush Hour Auto-Print Card - ONLY in Owner Mode */}
+              {kioskMode === "owner" ? (
+                <div
                   style={{
-                    display: "inline-flex",
+                    padding: "20px",
+                    borderRadius: "var(--radius-md)",
+                    background: rushHourAutoPrint
+                      ? "rgba(245, 158, 11, 0.12)"
+                      : "rgba(17, 24, 39, 0.8)",
+                    border: rushHourAutoPrint
+                      ? "1px solid rgba(245, 158, 11, 0.4)"
+                      : "1px solid var(--border-subtle)",
+                    display: "flex",
                     alignItems: "center",
-                    gap: 10,
-                    cursor: "pointer",
-                    fontSize: 14,
-                    fontWeight: 600,
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: 16,
+                    transition: "all 0.15s ease",
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={rushHourAutoPrint}
-                    onChange={(e) => setRushHourAutoPrint(e.target.checked)}
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "var(--radius-sm)",
+                        background: rushHourAutoPrint
+                          ? "rgba(245, 158, 11, 0.25)"
+                          : "rgba(30, 41, 59, 0.6)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: rushHourAutoPrint ? "#f59e0b" : "#94a3b8",
+                      }}
+                    >
+                      <Zap size={24} />
+                    </div>
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span>⚡ Rush Hour Auto-Print</span>
+                        {rushHourAutoPrint && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              background: "rgba(245, 158, 11, 0.2)",
+                              color: "#f59e0b",
+                              fontWeight: 600,
+                            }}
+                          >
+                            ACTIVE IN OWNER MODE
+                          </span>
+                        )}
+                      </span>
+                      <p
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          margin: "4px 0 0 0",
+                        }}
+                      >
+                        In Owner Mode, automatically sends incoming cloud jobs straight to routed printer pools without requiring manual OTP confirmation.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label
                     style={{
-                      width: 22,
-                      height: 22,
-                      accentColor: "#f59e0b",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 10,
                       cursor: "pointer",
+                      fontSize: 14,
+                      fontWeight: 600,
                     }}
-                  />
+                  >
+                    <input
+                      type="checkbox"
+                      checked={rushHourAutoPrint}
+                      onChange={(e) => setRushHourAutoPrint(e.target.checked)}
+                      style={{
+                        width: 22,
+                        height: 22,
+                        accentColor: "#f59e0b",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <span>
+                      {rushHourAutoPrint ? "Auto-Print Enabled" : "Disabled"}
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: "16px 20px",
+                    borderRadius: "var(--radius-md)",
+                    background: "rgba(15, 23, 42, 0.45)",
+                    border: "1px dashed rgba(148, 163, 184, 0.2)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    color: "var(--text-muted)",
+                    fontSize: 13,
+                  }}
+                >
+                  <Zap size={18} style={{ opacity: 0.5, flexShrink: 0 }} />
                   <span>
-                    {rushHourAutoPrint ? "Auto-Print Enabled" : "Disabled"}
+                    <strong>Rush Hour Auto-Print</strong> is only available in <strong>Owner / Operator Queue Mode</strong>. In Self-Service Kiosk Mode, customers must enter their 6-digit OTP at the screen to release prints.
                   </span>
-                </label>
-              </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -139,6 +139,41 @@ pub fn route_file_to_printer(
     enabled.first().map(|p| p.name.clone())
 }
 
+/// Helper to resolve a system printer, gracefully avoiding Bonjour loopback aliases
+/// (e.g. "PrinterName @ Host" when "PrinterName" is locally present).
+pub fn resolve_printer_with_alias_handling(name: &str) -> Option<printers::common::base::printer::Printer> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // If the name is in the format "BaseName @ Hostname", check if the BaseName exists locally first
+    if let Some((base, _)) = trimmed.split_once(" @ ") {
+        let base_trimmed = base.trim();
+        if !base_trimmed.is_empty() {
+            if let Some(base_p) = get_printer_by_name(base_trimmed) {
+                return Some(base_p);
+            }
+        }
+    }
+
+    // Try finding by exact name
+    if let Some(p) = get_printer_by_name(trimmed) {
+        return Some(p);
+    }
+
+    // Fallback: check if any printer's system_name or base name matches
+    let all = get_printers();
+    all.into_iter().find(|p| {
+        p.name.eq_ignore_ascii_case(trimmed)
+            || p.system_name.eq_ignore_ascii_case(trimmed)
+            || p.name
+                .split_once(" @ ")
+                .map(|(b, _)| b.trim().eq_ignore_ascii_case(trimmed))
+                .unwrap_or(false)
+    })
+}
+
 /// Prints all files in a job using pooled routing per file.
 /// For each file: matches color/paperSize to pool with round-robin, checks overrides,
 /// falls back to default printer or OS default, and dispatches to the spooler.
@@ -180,7 +215,8 @@ pub fn print_job_files_pooled(
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            Some(name) => get_printer_by_name(name)
+            Some(name) => resolve_printer_with_alias_handling(name)
+                .or_else(get_default_printer)
                 .ok_or_else(|| format!("Printer '{name}' not found on system"))?,
             None => get_default_printer()
                 .ok_or_else(|| "No default system printer found".to_string())?,
@@ -200,23 +236,50 @@ pub fn print_job_files_pooled(
             ..PrinterJobOptions::none()
         };
 
-        printer
-            .print_file(&file.local_path, options)
-            .map_err(|e| {
-                format!(
-                    "Failed to print '{}' to '{}': {e:?}",
+        let print_res = printer.print_file(&file.local_path, options.clone());
+        let actual_target_name = match print_res {
+            Ok(_) => target_name,
+            Err(e) => {
+                eprintln!(
+                    "[JetPrint Printer] Failed to print '{}' to '{}': {e:?}",
                     file.filename, target_name
-                )
-            })?;
+                );
+                // Attempt fallback to default printer if target_name is not already the fallback
+                let fallback_printer = default_printer
+                    .and_then(resolve_printer_with_alias_handling)
+                    .or_else(get_default_printer)
+                    .filter(|p| p.name != target_name);
 
-        printed_assignments.push((file.file_id.clone(), target_name));
+                if let Some(fallback) = fallback_printer {
+                    let fb_name = fallback.name.clone();
+                    eprintln!(
+                        "[JetPrint Printer] Retrying print of '{}' with fallback printer '{}'...",
+                        file.filename, fb_name
+                    );
+                    fallback.print_file(&file.local_path, options).map_err(|fb_err| {
+                        format!(
+                            "Failed to print '{}' to '{}' ({e:?}); fallback to '{}' also failed: {fb_err:?}",
+                            file.filename, target_name, fb_name
+                        )
+                    })?;
+                    fb_name
+                } else {
+                    return Err(format!(
+                        "Failed to print '{}' to '{}': {e:?}",
+                        file.filename, target_name
+                    ));
+                }
+            }
+        };
+
+        printed_assignments.push((file.file_id.clone(), actual_target_name));
     }
 
     Ok(printed_assignments)
 }
 
 pub fn print_test_page(printer_name: &str) -> Result<String, String> {
-    let printer = match get_printer_by_name(printer_name) {
+    let printer = match resolve_printer_with_alias_handling(printer_name).or_else(get_default_printer) {
         Some(p) => p,
         None => return Err(format!("Printer '{printer_name}' not found")),
     };
@@ -241,10 +304,21 @@ pub fn print_test_page(printer_name: &str) -> Result<String, String> {
     Ok(format!("Test page sent to '{printer_name}' successfully"))
 }
 
-/// Lists all printers recognized by the operating system.
+/// Lists all printers recognized by the operating system, filtering out ghost loopback aliases.
 pub fn list_system_printers() -> Vec<PrinterInfo> {
-    get_printers()
-        .into_iter()
+    let all = get_printers();
+    let local_names: std::collections::HashSet<String> = all.iter().map(|p| p.name.clone()).collect();
+
+    all.into_iter()
+        .filter(|p| {
+            // Filter out Bonjour ghost aliases when base exists locally
+            if let Some((base, _)) = p.name.split_once(" @ ") {
+                if local_names.contains(base.trim()) {
+                    return false;
+                }
+            }
+            true
+        })
         .map(|p| PrinterInfo {
             name: p.name,
             system_name: p.system_name,
@@ -622,5 +696,12 @@ mod tests {
         }];
         let routed_fallback = route_file_to_printer(&color_file, true, &default_only_printers, None);
         assert_eq!(routed_fallback.as_deref(), Some("Default-Only"));
+    }
+
+    #[test]
+    fn handles_printer_alias_resolution() {
+        // Empty returns None
+        assert!(resolve_printer_with_alias_handling("").is_none());
+        assert!(resolve_printer_with_alias_handling("   ").is_none());
     }
 }

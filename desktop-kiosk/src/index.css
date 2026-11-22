@@ -1034,12 +1034,155 @@ textarea:focus {
   white-space: nowrap;
 }
 
+/* Rush Hour Navigation & Quick Search Bar */
+.rush-queue-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.rush-tabs-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rush-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rush-tab-btn:hover {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--text-primary);
+}
+
+.rush-tab-btn.active {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: var(--accent-primary);
+  color: #c7d2fe;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.18);
+}
+
+.rush-tab-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+.rush-tab-badge.badge-urgent {
+  background: rgba(245, 158, 11, 0.22);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+/* Quick Search Box */
+.rush-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 220px;
+  flex: 0 1 280px;
+}
+
+.rush-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.rush-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 30px 0 32px;
+  font-size: 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.rush-search-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.rush-search-clear-btn {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.rush-search-clear-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+}
+
+/* Touch-Friendly 10px Scrollbar for Queue */
 .jobs-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 280px;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.4) rgba(15, 23, 42, 0.4);
+}
+
+.jobs-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.jobs-list::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 999px;
+}
+
+.jobs-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: all 0.2s ease;
+}
+
+.jobs-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
 }
 
 .job-row {
@@ -1799,57 +1942,70 @@ textarea:focus {
 
 
 /* ==========================================================================
-   Rush Hour Auto-Print & Queue Enhancements
+   Rush Hour Auto-Print & Queue Action Buttons
    ========================================================================== */
 
 .rush-hour-toggle-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  border-radius: 8px;
   font-size: 13px;
-  font-weight: 600;
-  border: 1px solid var(--border-subtle);
-  background: rgba(15, 23, 42, 0.7);
-  color: var(--text-secondary);
+  font-weight: 700;
+  border: 1.5px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+  color: #fef3c7;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.rush-hour-toggle-btn .rush-icon-pulse,
+.rush-hour-toggle-btn svg {
+  color: #f59e0b;
 }
 
 .rush-hour-toggle-btn:hover {
-  border-color: rgba(245, 158, 11, 0.4);
-  color: var(--text-primary);
-  background: rgba(245, 158, 11, 0.08);
+  border-color: #f59e0b;
+  color: #ffffff;
+  background: rgba(245, 158, 11, 0.16);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.35);
+  transform: translateY(-1px);
 }
 
 .rush-hour-toggle-btn.active {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.12));
-  border-color: rgba(245, 158, 11, 0.6);
-  color: #fef3c7;
-  box-shadow: 0 0 16px rgba(245, 158, 11, 0.25);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(217, 119, 6, 0.22));
+  border-color: #f59e0b;
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
 }
 
 .rush-indicator {
   display: inline-flex;
   align-items: center;
-  padding: 1px 6px;
+  justify-content: center;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .rush-indicator.on {
   background: #f59e0b;
   color: #000000;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
 }
 
 .rush-indicator.off {
-  background: rgba(148, 163, 184, 0.18);
-  color: var(--text-muted);
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
 }
 
 .rush-icon-pulse {
@@ -1869,18 +2025,90 @@ textarea:focus {
   }
 }
 
+/* Cohesive Action Buttons for Queue Header (Logs, Refresh) */
+.owner-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1.5px solid rgba(148, 163, 184, 0.2);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.owner-action-btn:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.owner-action-btn:active {
+  transform: translateY(0);
+}
+
 .rush-hour-active-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 16px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(217, 119, 6, 0.08));
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(217, 119, 6, 0.08));
   border: 1px solid rgba(245, 158, 11, 0.35);
   color: #fde68a;
   font-size: 13px;
   box-shadow: 0 2px 12px rgba(245, 158, 11, 0.1);
   animation: fadeIn 0.2s ease-out;
+}
+
+.rush-banner-dismiss-btn {
+  background: transparent;
+  border: none;
+  color: rgba(253, 230, 138, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.rush-banner-dismiss-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stat-pill.stat-printed-beside {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #a7f3d0;
+  user-select: none;
+}
+
+.stat-pill.stat-printed-beside strong {
+  color: #ffffff;
+  font-weight: 700;
 }
 
 @keyframes fadeIn {
@@ -1894,62 +2122,426 @@ textarea:focus {
   }
 }
 
-/* Per-File Inline Printer Badge & Selector in Job Card */
-.job-files-container {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 2px;
+/* Owner Mode Layout */
+.kiosk-main.kiosk-owner-layout {
+  grid-template-columns: clamp(280px, 22vw, 360px) 1fr;
+  gap: clamp(14px, 1.8vw, 24px);
+  align-items: stretch;
+  width: 100%;
 }
 
-.job-file-row {
+@media (max-width: 900px) {
+  .kiosk-main.kiosk-owner-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+.owner-queue-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  width: 100%;
+  flex: 1;
+}
+
+.owner-queue-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.owner-queue-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.owner-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.owner-queue-heading {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.owner-stat-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
+}
+
+.stat-pill strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-amber {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+.dot-blue {
+  background: #60a5fa;
+  box-shadow: 0 0 6px #60a5fa;
+}
+
+.dot-emerald {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.dot-rose {
+  background: #f43f5e;
+  box-shadow: 0 0 6px #f43f5e;
+}
+
+.owner-queue-subtext {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.owner-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Redesigned Structured Job Card */
+.owner-job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  transition: all 0.2s ease;
+  min-width: 0;
+  margin-bottom: 10px;
+}
+
+.owner-job-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.owner-job-card.status-printing {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(99, 102, 241, 0.08));
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.15);
+}
+
+.owner-job-card.status-failed {
+  border-color: rgba(244, 63, 94, 0.4);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(244, 63, 94, 0.06));
+}
+
+.owner-job-card.status-printed {
+  border-color: rgba(16, 185, 129, 0.25);
+  opacity: 0.92;
+}
+
+.owner-job-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 8px;
-  background: rgba(15, 23, 42, 0.45);
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.08);
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
 }
 
-.job-file-info {
+.job-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.job-otp-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.16);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #c7d2fe;
+}
+
+.job-spec-chips {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  flex: 1;
+  flex-wrap: wrap;
 }
 
-.job-file-bullet {
-  color: var(--accent-primary);
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.job-file-name {
+.spec-chip {
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 240px;
+  height: 32px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.job-file-pages {
-  font-size: 11px;
+.spec-chip.time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--text-muted);
 }
 
-.job-file-printer-section {
+.spec-chip.bw-chip {
+  color: #cbd5e1;
+}
+
+.spec-chip.color-chip {
+  color: #a78bfa;
+  border-color: rgba(167, 139, 250, 0.25);
+  background: rgba(167, 139, 250, 0.08);
+}
+
+/* Job Header Right: Unified 32px Action & Status Bar */
+.job-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.file-printer-badge {
+.job-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 32px;
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.job-status-pill.status-pending {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  color: #fbbf24;
+}
+
+.job-status-pill.status-printing {
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #93c5fd;
+  animation: pulse 1.6s infinite ease-in-out;
+}
+
+.job-status-pill.status-printed {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+}
+
+.job-status-pill.status-failed {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
+.job-status-pill.status-cancelled,
+.job-status-pill.status-expired {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+}
+
+.job-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Unified Cancel Button */
+.btn-compact {
+  height: 32px !important;
+  width: 86px !important;
+  min-width: 86px !important;
+  max-width: 86px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  background: rgba(244, 63, 94, 0.08) !important;
+  border: 1px solid rgba(244, 63, 94, 0.26) !important;
+  color: #fda4af !important;
+  transition: all 0.15s ease !important;
+}
+
+.btn-compact:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.18) !important;
+  border-color: rgba(244, 63, 94, 0.45) !important;
+  color: #ffe4e6 !important;
+}
+
+/* Unified Primary Action Button (Direct Print / Re-Print / Retry Print) */
+.direct-print-btn {
+  height: 32px !important;
+  width: 118px !important;
+  min-width: 118px !important;
+  max-width: 118px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  background: linear-gradient(135deg, #4f46e5, #4338ca) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28) !important;
+  transition: all 0.15s ease !important;
+}
+
+.direct-print-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4338ca, #3730a3) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.42) !important;
+  transform: translateY(-1px);
+}
+
+.direct-print-btn.btn-retry {
+  background: linear-gradient(135deg, #d97706, #b45309) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3) !important;
+}
+
+.direct-print-btn.btn-retry:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b45309, #92400e) !important;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.45) !important;
+}
+
+.owner-job-files-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.owner-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.owner-file-details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.owner-file-icon {
+  color: #818cf8;
+  flex-shrink: 0;
+}
+
+.owner-file-name-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.owner-file-pages-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.owner-file-printer-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.owner-file-printer-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1958,27 +2550,27 @@ textarea:focus {
   font-size: 11px;
   font-weight: 600;
   background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.26);
+  border: 1px solid rgba(99, 102, 241, 0.28);
   color: #c7d2fe;
 }
 
-.printer-name-text {
-  max-width: 130px;
+.assigned-printer-text {
+  max-width: 280px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.file-printer-select-wrap {
+.owner-file-printer-select-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.file-printer-select {
+.owner-file-printer-select {
   appearance: none;
   -webkit-appearance: none;
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(15, 23, 42, 0.9);
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 6px;
   padding: 3px 22px 3px 8px;
@@ -1991,14 +2583,52 @@ textarea:focus {
   transition: all 0.15s ease;
 }
 
-.file-printer-select:hover {
+.owner-file-printer-select:hover {
   border-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
-.file-printer-select:focus {
+.owner-file-printer-select:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.job-failed-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  color: #fda4af;
+  font-size: 12px;
+}
+
+.queue-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .select-arrow-icon {
@@ -2008,215 +2638,558 @@ textarea:focus {
   color: var(--text-muted);
 }
 
-.direct-print-btn {
-  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3) !important;
-  transition: all 0.15s ease !important;
-}
-
-.direct-print-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4f46e5, #4338ca) !important;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45) !important;
-  transform: translateY(-1px);
-}
-
 /* ==========================================================================
    Dedicated Settings Space & Multi-Printer Pools Responsive Styles
    ========================================================================== */
 
-/* Pool Cards Summary Grid */
-.pool-cards-grid {
+/* Interactive Pool Filter Tabs */
+.pool-filter-tabs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
   width: 100%;
 }
 
-.pool-card {
+.pool-tab-btn {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid var(--border-subtle);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   overflow: hidden;
 }
 
-.pool-card:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+.pool-tab-btn:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(30, 41, 59, 0.6);
+  transform: translateY(-1px);
 }
 
-.pool-card.bw {
-  border-left: 3px solid #60a5fa;
+.pool-tab-btn.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.2);
 }
 
-.pool-card.color {
-  border-left: 3px solid #34d399;
+.pool-tab-btn.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-primary);
 }
 
-.pool-card.large_format {
-  border-left: 3px solid #fbbf24;
-}
-
-.pool-card.default {
-  border-left: 3px solid #a78bfa;
-}
-
-.pool-card-header {
+.pool-tab-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
-.pool-card-title {
-  font-size: 14px;
+.pool-tab-label {
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.pool-card-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
+.pool-tab-badge {
+  font-size: 10px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
-}
-
-.pool-card-desc {
-  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-muted);
 }
 
-.pool-card-printers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
+.pool-tab-badge.has-printers {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
-.pool-printer-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 6px;
+.pool-tab-desc {
   font-size: 11px;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Printer Configuration Cards */
-.printer-config-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* Master-Detail Printers Section */
+.printers-master-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  gap: 18px;
   width: 100%;
+  align-items: stretch;
 }
 
-.printer-config-card {
+.printers-master-pane {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 20px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: var(--radius-md);
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  transition: border-color 0.15s ease;
+  padding: 16px;
+  min-width: 0;
 }
 
-.printer-config-card:hover {
-  border-color: var(--border-strong);
-}
-
-.printer-config-card.disabled {
-  opacity: 0.6;
-}
-
-.printer-card-top {
+.pane-header-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-.printer-card-details {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
-  align-items: center;
+.count-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
 }
 
-.capability-tags-group {
+.printers-list-scroll {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
-.capability-chip {
-  display: inline-flex;
+.printer-item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.printer-item-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(30, 41, 59, 0.7);
+  transform: translateX(2px);
+}
+
+.printer-item-card.selected {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.14);
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.18);
+}
+
+.printer-item-card.disabled {
+  opacity: 0.55;
+}
+
+.printer-item-header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.printer-status-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.enabled {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.status-dot.disabled {
+  background: #64748b;
+}
+
+.printer-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge-default {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.printer-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.printer-driver-text {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+
+.pool-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.pool-badge.pool-bw {
+  background: rgba(96, 165, 250, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.pool-badge.pool-color {
+  background: rgba(167, 139, 250, 0.15);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.pool-badge.pool-large_format {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pool-badge.pool-default {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+/* Detail Configuration Column */
+.printers-detail-pane {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: var(--radius-md);
+  padding: 20px 22px;
+  min-width: 0;
+}
+
+.printer-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.detail-title-group {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  min-width: 0;
+}
+
+.detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.detail-icon {
+  color: #818cf8;
+}
+
+.detail-printer-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.badge-default-active {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid #f59e0b;
+  color: #fbbf24;
+}
+
+.badge-os-default {
   font-size: 11px;
   font-weight: 600;
-  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #c7d2fe;
+}
+
+.detail-system-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.detail-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-detail-action {
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.detail-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: rgba(2, 6, 23, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 8px;
+}
+
+.detail-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+
+.detail-row-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0 0;
+}
+
+.toggle-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-switch-label input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch-slider {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 20px;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.toggle-switch-slider::before {
+  content: "";
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.toggle-switch-label input:checked + .toggle-switch-slider {
+  background: #10b981;
+}
+
+.toggle-switch-label input:checked + .toggle-switch-slider::before {
+  transform: translateX(20px);
+}
+
+.toggle-switch-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.detail-inputs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.detail-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.detail-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.detail-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.detail-select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.detail-select-arrow {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-muted);
+}
+
+.detail-capabilities-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-caps-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cap-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
   background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.capability-chip:hover {
+.cap-chip-btn:hover {
   border-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
-.capability-chip.active {
+.cap-chip-btn.active {
   background: rgba(99, 102, 241, 0.18);
   border-color: var(--accent-primary);
-  color: #a5b4fc;
+  color: #c7d2fe;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+}
+
+.detail-empty-selection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.printers-empty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px dashed rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-md);
 }
 
 /* Dedicated Settings Space Responsive Breakpoints */
 @media (max-width: 900px) {
-  .job-file-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+  .printers-master-detail-grid {
+    grid-template-columns: 1fr;
   }
 
-  .job-file-printer-section {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .pool-cards-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .printer-card-details {
+  .detail-inputs-grid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 680px) {
-  .pool-cards-grid {
+  .pool-filter-tabs {
     grid-template-columns: 1fr;
   }
 
@@ -2230,13 +3203,44 @@ textarea:focus {
     padding: 8px 12px;
   }
 
-  .file-printer-badge {
-    font-size: 10px;
-    padding: 2px 6px;
+  .owner-job-card-header {
+    gap: 10px;
   }
 
-  .file-printer-select {
-    font-size: 10px;
-    padding: 2px 18px 2px 6px;
+  .job-header-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 480px) {
+  .job-header-left {
+    width: 100%;
+  }
+
+  .job-spec-chips {
+    width: 100%;
+  }
+
+  .job-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .job-status-pill {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .job-action-buttons {
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .direct-print-btn {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
 }
