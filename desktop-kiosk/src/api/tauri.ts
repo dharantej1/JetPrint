@@ -90,9 +90,14 @@ export async function testPrint(printerName: string): Promise<string> {
 
 export async function printJobDirect(
   jobId: string,
-  printerName?: string
+  printerName?: string,
+  printerOverrides?: Record<string, string>
 ): Promise<PrintResult> {
-  return invoke<PrintResult>("print_job_direct", { jobId, printerName });
+  return invoke<PrintResult>("print_job_direct", {
+    jobId,
+    printerName,
+    printerOverrides,
+  });
 }
 
 export async function verifyOtpAndPrint(otp: string): Promise<PrintResult> {

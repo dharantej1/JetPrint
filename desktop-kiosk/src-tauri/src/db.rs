@@ -212,6 +212,12 @@ impl Database {
             }
         }
 
+        // Recover any jobs left in 'printing' state from an unexpected crash or restart back to 'pending'
+        let _ = conn.execute(
+            "UPDATE print_jobs SET status = 'pending' WHERE status = 'printing'",
+            [],
+        );
+
         Ok(())
     }
 
@@ -1157,6 +1163,40 @@ mod tests {
 
         let cfg = db.get_config().expect("get_config");
         assert_eq!(cfg.default_printer.as_deref(), Some("Canon-MF3010"));
+    }
+
+    #[test]
+    fn recovers_printing_jobs_to_pending_on_init() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("test.db");
+
+        {
+            let db = Database::open(&db_path).expect("open db");
+            db.insert_job(&PrintJob {
+                id: "job-crash-1".to_string(),
+                otp: "112233".to_string(),
+                files: vec![],
+                copies: 1,
+                color: false,
+                status: JobStatus::Pending,
+                created_at: Utc::now().to_rfc3339(),
+                printed_at: None,
+            })
+            .expect("insert_job");
+
+            db.update_job_status("job-crash-1", JobStatus::Printing)
+                .expect("update_job_status to printing");
+            let job = db.get_job_by_id("job-crash-1").expect("get job").unwrap();
+            assert_eq!(job.status, JobStatus::Printing);
+        }
+
+        // Re-open database (simulating app restart after unexpected crash)
+        let reopened_db = Database::open(&db_path).expect("reopen db");
+        let recovered_job = reopened_db
+            .get_job_by_id("job-crash-1")
+            .expect("get recovered job")
+            .unwrap();
+        assert_eq!(recovered_job.status, JobStatus::Pending);
     }
 }
 

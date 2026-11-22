@@ -18,6 +18,8 @@ use crate::security::{
 use crate::storage::{delete_job_files, normalize_storage_dir, SharedStorage};
 use crate::ws_client::RelayHandle;
 
+static PRINT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub struct AppState {
     pub app_data_dir: PathBuf,
     pub storage: SharedStorage,
@@ -195,6 +197,8 @@ pub async fn verify_otp_and_print(
         return Err("Please enter a valid 6-digit OTP".to_string());
     }
 
+    let _print_guard = PRINT_LOCK.lock().await;
+
     let db = state.storage.db();
     let job = db
         .get_job_by_otp(&trimmed)?
@@ -295,6 +299,8 @@ pub async fn print_job_direct(
     if trimmed.is_empty() {
         return Err("Invalid job ID".to_string());
     }
+
+    let _print_guard = PRINT_LOCK.lock().await;
 
     let db = state.storage.db();
     let job = db

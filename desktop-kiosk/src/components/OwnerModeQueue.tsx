@@ -44,7 +44,11 @@ export interface OwnerModeQueueProps {
   selectedDate: string | null;
   onDateChange: (date: string | null) => void;
   onRefresh: () => void;
-  onPrintJob: (jobOrOtp: PrintJob | string, printerOverride?: string) => void;
+  onPrintJob: (
+    jobOrOtp: PrintJob | string,
+    printerOverride?: string,
+    printerOverrides?: Record<string, string>
+  ) => void;
   onCancelJob: (jobId: string) => void;
   printingOtp: string | null;
   cancellingJobId: string | null;
@@ -496,13 +500,24 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                                 : "Print job directly bypassing customer OTP"
                           }
                           onClick={() => {
+                            const jobOverrides: Record<string, string> = {};
+                            for (const f of job.files) {
+                              const k = `${job.id}_${f.fileId}`;
+                              if (fileOverrides[k]) {
+                                jobOverrides[f.fileId] = fileOverrides[k];
+                              }
+                            }
                             const firstOverrideKey = Object.keys(fileOverrides).find(
                               (k) => k.startsWith(`${job.id}_`)
                             );
                             const printerOverride = firstOverrideKey
                               ? fileOverrides[firstOverrideKey]
                               : undefined;
-                            onPrintJob(job, printerOverride);
+                            onPrintJob(
+                              job,
+                              printerOverride,
+                              Object.keys(jobOverrides).length > 0 ? jobOverrides : undefined
+                            );
                           }}
                         >
                           {isThisPrinting ? (

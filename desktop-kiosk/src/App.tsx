@@ -202,44 +202,116 @@ const KioskApp: React.FC = () => {
     }
   }, []);
 
+  // Print queue to sequence print jobs to prevent concurrent printer collisions
+  const printQueueRef = useRef<
+    Array<{
+      job: PrintJob;
+      printer?: string;
+      overrides?: Record<string, string>;
+    }>
+  >([]);
+  const isPrintingRef = useRef(false);
+
+  const processPrintQueue = useCallback(async () => {
+    if (isPrintingRef.current) return;
+    if (printQueueRef.current.length === 0) {
+      setPrintingJobOtp(null);
+      return;
+    }
+
+    isPrintingRef.current = true;
+    const nextItem = printQueueRef.current.shift();
+    if (!nextItem) {
+      isPrintingRef.current = false;
+      return;
+    }
+
+    const { job, printer, overrides } = nextItem;
+    setPrintingJobOtp(job.otp);
+
+    try {
+      await printJobDirect(job.id, printer, overrides);
+    } catch (err) {
+      console.error("Print execution error:", err);
+    } finally {
+      await refreshJobs();
+      isPrintingRef.current = false;
+      // Process next job in queue if any
+      processPrintQueue();
+    }
+  }, [refreshJobs]);
+
+  const enqueueJobForPrint = useCallback(
+    (job: PrintJob, printer?: string, overrides?: Record<string, string>) => {
+      if (
+        job.status === "printed" ||
+        job.status === "cancelled" ||
+        job.status === "expired"
+      ) {
+        return;
+      }
+      if (printQueueRef.current.some((item) => item.job.id === job.id)) {
+        return;
+      }
+      printQueueRef.current.push({ job, printer, overrides });
+      processPrintQueue();
+    },
+    [processPrintQueue]
+  );
+
+  const enqueueJobForPrintRef = useRef(enqueueJobForPrint);
+  enqueueJobForPrintRef.current = enqueueJobForPrint;
+  const refreshJobsRef = useRef(refreshJobs);
+  refreshJobsRef.current = refreshJobs;
+
   const handleOwnerQueuePrint = useCallback(
-    async (jobOrOtp: PrintJob | string, printerOverride?: string) => {
+    async (
+      jobOrOtp: PrintJob | string,
+      printerOverride?: string,
+      printerOverrides?: Record<string, string>
+    ) => {
       const job =
         typeof jobOrOtp === "string"
           ? jobs.find((j) => j.otp === jobOrOtp)
           : jobOrOtp;
       const otp = typeof jobOrOtp === "string" ? jobOrOtp : jobOrOtp.otp;
-      const jobId = job ? job.id : undefined;
 
-      setPrintingJobOtp(otp);
-      try {
-        if (jobId) {
-          await printJobDirect(jobId, printerOverride);
-        } else {
+      if (job) {
+        enqueueJobForPrint(job, printerOverride, printerOverrides);
+      } else {
+        setPrintingJobOtp(otp);
+        try {
           await verifyOtpAndPrint(otp);
+        } catch (err) {
+          console.error("Print execution error:", err);
+        } finally {
+          await refreshJobs();
+          setPrintingJobOtp(null);
         }
-      } catch (err) {
-        console.error("Print execution error:", err);
-      } finally {
-        await refreshJobs();
-        setPrintingJobOtp(null);
       }
     },
-    [jobs, refreshJobs]
+    [jobs, enqueueJobForPrint, refreshJobs]
   );
 
   const loadState = useCallback(async () => {
     try {
       const state = await getKioskState();
       setKioskState(state);
-      setRushHourEnabled(
-        state.kioskMode === "owner" && Boolean(state.rushMode || state.rushHourAutoPrint)
-      );
+      const isRushActive =
+        state.kioskMode === "owner" && Boolean(state.rushMode || state.rushHourAutoPrint);
+      setRushHourEnabled(isRushActive);
       setRelayStatus(state.relayStatus);
       setRelayMessage(state.relayMessage);
       setRelayAuthError(state.relayAuthError);
       if (state.kioskMode === "owner") {
-        await refreshJobs();
+        const nextJobs = await listJobs(undefined, selectedDateRef.current ?? undefined);
+        setJobs(nextJobs);
+        if (isRushActive) {
+          const pending = nextJobs.filter((j) => j.status === "pending");
+          for (const pj of pending) {
+            enqueueJobForPrint(pj);
+          }
+        }
       }
       setLoadError("");
     } catch (err) {
@@ -251,7 +323,7 @@ const KioskApp: React.FC = () => {
     } finally {
       setLoaded(true);
     }
-  }, [refreshJobs]);
+  }, [enqueueJobForPrint]);
 
   useEffect(() => {
     let active = true;
@@ -260,15 +332,15 @@ const KioskApp: React.FC = () => {
     listenKioskEvents({
       onJobReceived: (incomingJob) => {
         if (kioskModeRef.current === "owner") {
-          refreshJobs();
-          // Handle Rush Hour Auto-Print: automatically print incoming jobs upon the 'job-received' event
+          refreshJobsRef.current();
+          // Handle Rush Hour Auto-Print: automatically queue incoming jobs upon the 'job-received' event
           if (rushHourRef.current && incomingJob) {
             console.log(
-              "⚡ Rush Hour Auto-Print: automatically printing incoming job",
+              "⚡ Rush Hour Auto-Print: automatically queueing incoming job",
               incomingJob.id,
               incomingJob.otp
             );
-            handleOwnerQueuePrint(incomingJob);
+            enqueueJobForPrintRef.current(incomingJob);
           }
         }
       },
@@ -312,7 +384,7 @@ const KioskApp: React.FC = () => {
       window.clearInterval(updateTimer);
       unlisteners.forEach((fn) => fn());
     };
-  }, [loadState, refreshJobs, runUpdateCheck, handleOwnerQueuePrint]);
+  }, [loadState, runUpdateCheck]);
 
   // Ctrl+Shift+S / Cmd+Shift+S shortcut to open Owner Settings
   useEffect(() => {
@@ -434,6 +506,13 @@ const KioskApp: React.FC = () => {
       setRushHourEnabled(
         next.kioskMode === "owner" && Boolean(next.rushMode || next.rushHourAutoPrint)
       );
+      if (enabled) {
+        const currentJobs = await listJobs(undefined, selectedDateRef.current ?? undefined);
+        const pending = currentJobs.filter((j) => j.status === "pending");
+        for (const pj of pending) {
+          enqueueJobForPrint(pj);
+        }
+      }
     } catch (err) {
       console.warn("Failed to persist rushMode setting:", err);
     }
