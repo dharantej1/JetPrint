@@ -202,7 +202,7 @@ Enter your **Owner Password** on the keypad and click **Unlock Settings**.
 
 Once unlocked, JetPrint transitions into a **Full-Page Dedicated Settings Workspace** featuring:
 - **`← Back to Kiosk`** button in the header to return instantly to the customer screen or print queue.
-- **Machine ID Pill**: Shows your full machine ID (e.g. `jp-bb30d6ce992f`).
+- **Machine ID Pill**: Shows your kiosk's full unique Machine ID.
 - **Sidebar Navigation**:
   - **Printers & Pools**: Manage connected hardware, capability tags, pools, and test prints.
   - **Pricing & Paper**: Configure per-page rates and active paper sizes.
