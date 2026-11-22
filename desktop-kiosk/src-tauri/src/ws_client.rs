@@ -76,6 +76,7 @@ impl RelayHandle {
         if let Ok(mut guard) = self.status.lock() {
             guard.0 = RelayConnectionStatus::Connecting;
             guard.1 = Some("Reconnecting to relay...".to_string());
+            guard.2 = None;
         }
         self.reconnect_notify.notify_one();
     }
@@ -103,6 +104,13 @@ struct PricingPayload {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum OutgoingWsMessage {
+    Register {
+        machine_id: String,
+        pricing: PricingPayload,
+        supported_paper_sizes: Vec<String>,
+        #[serde(rename = "supportedPaperSizes")]
+        supported_paper_sizes_camel: Vec<String>,
+    },
     Auth {
         machine_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -234,24 +242,35 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                 false,
                 RelayConnectionStatus::Connecting,
                 Some("Connecting to relay..."),
-                None,
+                Some(None),
             );
 
             match connect_async(&ws_url).await {
                 Ok((ws_stream, _)) => {
                     let (mut write, mut read) = ws_stream.split();
 
-                    let auth_msg = OutgoingWsMessage::Auth {
-                        machine_id: config.machine_id.clone(),
-                        auth_token: active_token.clone(),
-                        pricing: PricingPayload {
-                            bw_per_page_paise: config.bw_price_paise,
-                            color_per_page_paise: config.color_price_paise,
+                    let initial_msg = match active_token.as_ref() {
+                        Some(token) if !token.trim().is_empty() => OutgoingWsMessage::Auth {
+                            machine_id: config.machine_id.clone(),
+                            auth_token: Some(token.clone()),
+                            pricing: PricingPayload {
+                                bw_per_page_paise: config.bw_price_paise,
+                                color_per_page_paise: config.color_price_paise,
+                            },
+                            supported_paper_sizes: config.supported_paper_sizes.clone(),
+                            supported_paper_sizes_camel: config.supported_paper_sizes.clone(),
                         },
-                        supported_paper_sizes: config.supported_paper_sizes.clone(),
-                        supported_paper_sizes_camel: config.supported_paper_sizes.clone(),
+                        _ => OutgoingWsMessage::Register {
+                            machine_id: config.machine_id.clone(),
+                            pricing: PricingPayload {
+                                bw_per_page_paise: config.bw_price_paise,
+                                color_per_page_paise: config.color_price_paise,
+                            },
+                            supported_paper_sizes: config.supported_paper_sizes.clone(),
+                            supported_paper_sizes_camel: config.supported_paper_sizes.clone(),
+                        },
                     };
-                    if let Ok(json) = serde_json::to_string(&auth_msg) {
+                    if let Ok(json) = serde_json::to_string(&initial_msg) {
                         if write.send(Message::Text(json.into())).await.is_err() {
                             set_status(
                                 &app,
@@ -692,6 +711,23 @@ mod tests {
         assert_eq!(pricing_val["type"], "pricing_update");
         assert_eq!(pricing_val["supportedPaperSizes"], serde_json::json!(["A4", "A3"]));
         assert_eq!(pricing_val["supported_paper_sizes"], serde_json::json!(["A4", "A3"]));
+    }
+
+    #[test]
+    fn serializes_register_message() {
+        let msg = OutgoingWsMessage::Register {
+            machine_id: "m-123".to_string(),
+            pricing: PricingPayload {
+                bw_per_page_paise: 200,
+                color_per_page_paise: 1000,
+            },
+            supported_paper_sizes: vec!["A4".to_string()],
+            supported_paper_sizes_camel: vec!["A4".to_string()],
+        };
+        let val: serde_json::Value = serde_json::to_value(&msg).expect("serialize register");
+        assert_eq!(val["type"], "register");
+        assert_eq!(val["machine_id"], "m-123");
+        assert_eq!(val["supportedPaperSizes"], serde_json::json!(["A4"]));
     }
 
     #[test]

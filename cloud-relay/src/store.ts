@@ -74,10 +74,7 @@ export class RelayStore {
   ): KioskRecord {
     const cleanPreferred = preferredMachineId?.trim();
     let machineId: string;
-    if (
-      cleanPreferred &&
-      (!this.kiosks.has(cleanPreferred) || !this.kiosks.get(cleanPreferred)?.online)
-    ) {
+    if (cleanPreferred) {
       machineId = cleanPreferred;
     } else {
       machineId = `kiosk_${crypto.randomBytes(4).toString('hex')}`;
@@ -138,7 +135,7 @@ export class RelayStore {
     }
 
     if (!authToken || existing.authToken !== authToken) {
-      if (!authToken && !existing.online) {
+      if (!authToken) {
         existing.authToken = `tok_${crypto.randomBytes(24).toString('hex')}`;
         existing.online = true;
         existing.lastSeenAt = Date.now();
