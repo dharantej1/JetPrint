@@ -1,6 +1,6 @@
 [package]
 name = "jetprint-kiosk"
-version = "0.1.0"
+version = "0.1.21"
 description = "JetPrint Self-Service Print Kiosk"
 authors = ["JetPrint"]
 edition = "2021"
