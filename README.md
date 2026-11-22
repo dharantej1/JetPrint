@@ -79,6 +79,26 @@ GNU AGPL v3 licensed with zero cloud lock-in. Print files download straight to y
 
 </td>
 </tr>
+<tr>
+<td width="33%" valign="top">
+
+### Multi-Printer Pools (10–20+ Printers)
+Group printers into dedicated capability pools: B&W laser pools, color photo pools, and large format (A3/Legal) pools. Per-file smart routing automatically splits multi-file customer orders to the correct hardware with round-robin load balancing.
+
+</td>
+<td width="33%" valign="top">
+
+### ⚡ Rush Hour Zero-OTP Auto-Print
+Flip a single toggle in Owner Mode during peak hours to automatically dispatch incoming paid orders directly to the printer pool upon payment—eliminating customer OTP wait times and manual queue clicks.
+
+</td>
+<td width="33%" valign="top">
+
+### Dedicated Settings Space
+Replaces floating modal popups with a comprehensive full-page Settings workspace: auto-detected hardware inventory, printer nicknames, capability tags, per-page pricing, display controls, and diagnostic logging.
+
+</td>
+</tr>
 </table>
 
 ---
@@ -263,7 +283,7 @@ JetPrint is organized as a modular repository separating the cloud relay facade 
 |---|---|---|---|
 | **Cloud Relay** | [`cloud-relay/`](cloud-relay/) | Node.js, Express, `ws`, `pdf-lib`, Razorpay | Serves mobile upload UI, counts PDF pages, manages UPI orders, verifies webhooks, pushes OTPs over WebSocket. |
 | **Kiosk Core (Rust)** | [`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/) | Tauri v2, `rusqlite`, `printers`, `argon2`, `bip39`, `tokio` | Native OS printer spooling (CUPS & WinSpool), SQLite storage, WebSocket client, 48h file cleanup, and Minisign updater. |
-| **Kiosk UI (React)** | [`desktop-kiosk/src/`](desktop-kiosk/src/) | React 18, TypeScript, Vite, Tailwind | Self-Service touch keypad, QR display, Owner Mode print queue, date filters, first-run wizard, and settings modal. |
+| **Kiosk UI (React)** | [`desktop-kiosk/src/`](desktop-kiosk/src/) | React 18, TypeScript, Vite, Lucide | Self-Service touch keypad, QR display, Owner Mode print queue, Rush Hour Auto-Print, and Dedicated Settings Workspace. |
 | **Release Pipeline** | [`.github/workflows/`](.github/workflows/) | GitHub Actions, Tauri Action, Minisign | Multi-platform build matrix, artifact signing, and unified `latest.json` updater manifest consolidation. |
 
 ---

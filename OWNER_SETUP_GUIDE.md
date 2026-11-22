@@ -16,11 +16,15 @@
   - ["Keep Previous Data" vs "Start Fresh"](#keep-previous-data-vs-start-fresh)
 - [3. First-Run Setup Wizard (3 Steps)](#3-first-run-setup-wizard-3-steps)
 - [4. Understanding the Connection Status Pill](#4-understanding-the-connection-status-pill)
-- [5. Opening Owner Settings](#5-opening-owner-settings)
-- [6. Configuring Relay URL, Default Printer, and Per-Page Pricing](#6-configuring-relay-url-default-printer-and-per-page-pricing)
+- [5. Dedicated Owner Settings Workspace](#5-dedicated-owner-settings-workspace)
+- [6. Printers & Multi-Printer Pools (Managing 10–20+ Printers)](#6-printers--multi-printer-pools-managing-1020-printers)
+  - [Printer Capability Tagging & Smart Pool Routing](#printer-capability-tagging--smart-pool-routing)
+  - [Per-Page Pricing & Paper Sizes](#per-page-pricing--paper-sizes)
   - [Window & Display: Windowed Mode and Fullscreen Toggle](#window--display-windowed-mode-and-fullscreen-toggle)
   - [Storage Folder & System Diagnostic Logs](#storage-folder--system-diagnostic-logs)
-- [7. Switching Between Self-Service Mode and Owner Mode](#7-switching-between-self-service-mode-and-owner-mode)
+- [7. Operating Modes: Self-Service, Owner Queue & Rush Hour Auto-Print](#7-operating-modes-self-service-owner-queue--rush-hour-auto-print)
+  - [⚡ Rush Hour Auto-Print Mode (Zero-OTP Printing)](#-rush-hour-auto-print-mode-zero-otp-printing)
+  - [Per-File Printer Overrides in Owner Queue](#per-file-printer-overrides-in-owner-queue)
   - [Filtering the Owner Mode Print Queue by Date](#filtering-the-owner-mode-print-queue-by-date)
 - [8. Resetting a Forgotten Password](#8-resetting-a-forgotten-password)
 - [9. Installing App Updates](#9-installing-app-updates)
@@ -186,7 +190,7 @@ The **status pill** in the top-right header shows your Cloud Relay connection at
 
 ---
 
-## 5. Opening Owner Settings
+## 5. Dedicated Owner Settings Workspace
 
 Access shop settings at any time:
 
@@ -194,51 +198,96 @@ Access shop settings at any time:
 - Press **`Ctrl + Shift + S`** (Windows/Linux) or **`Cmd + Shift + S`** (macOS), **or**
 - Tap the **bottom-right corner** 5 times quickly.
 
-Enter your **Owner Password** and click **Unlock Settings**.
+Enter your **Owner Password** on the keypad and click **Unlock Settings**.
+
+Once unlocked, JetPrint transitions into a **Full-Page Dedicated Settings Workspace** featuring:
+- **`← Back to Kiosk`** button in the header to return instantly to the customer screen or print queue.
+- **Machine ID Pill**: Shows your full machine ID (e.g. `jp-bb30d6ce992f`).
+- **Sidebar Navigation**:
+  - **Printers & Pools**: Manage connected hardware, capability tags, pools, and test prints.
+  - **Pricing & Paper**: Configure per-page rates and active paper sizes.
+  - **Operating Mode**: Toggle between Self-Service, Owner Queue, and Rush Hour Auto-Print.
+  - **Cloud Relay**: Server endpoint, instant reconnect, machine token, and storage paths.
+  - **System & Updates**: Display controls, system logs, and version updates.
 
 ---
 
-## 6. Configuring Relay URL, Default Printer, and Per-Page Pricing
+## 6. Printers & Multi-Printer Pools (Managing 10–20+ Printers)
 
-Inside **Owner Settings**:
+JetPrint supports scaling from a single counter printer to high-volume print shops managing **10 to 20+ printers**.
 
-1. **Default Printer**: Choose your printer from the dropdown (or leave on **System Default**).
-2. **Per-Page Pricing (₹)**:
-   - Set **B&W Price per Page** (default `2.00`) and **Color Price per Page** (default `10.00`).
-   - Prices sync to the Cloud Relay automatically on save, so customers see the correct price on their phone.
-3. **Cloud Relay URL**: Enter your relay server address (e.g., `https://relay.yourshop.com`).
-   - **For customers on cellular data**, this must be a public `https://` URL. For same-Wi-Fi testing, use your LAN IP (e.g., `http://192.168.1.50:3000`) instead of `localhost`.
-4. Click **Save Settings** and confirm the **Relay Online** pill in the header.
+### Printer Capability Tagging & Smart Pool Routing
+
+Under the **Printers & Pools** tab:
+1. **Auto-Discovery**: JetPrint automatically detects all printers installed in your OS (macOS, Windows, or Linux CUPS). Click **Rescan System Printers** anytime new devices are plugged in.
+2. **Printer Profiles**:
+   - **Enabled / Disabled Toggle**: Activate or deactivate printers without unplugging them.
+   - **Display Nickname**: Assign intuitive labels (e.g., *"Counter 1 - Fast Laser"*, *"Photo Station - Epson L805"*, *"Back Office - A3 Plotter"*).
+   - **Capability Tags**: Tag what each printer handles (`B&W`, `Color`, `A4`, `A3`, `Legal`, `Duplex`).
+   - **Pool Assignment**:
+     - **`B&W Pool`**: Dedicated high-speed monochrome printers.
+     - **`Color Pool`**: High-quality color printers.
+     - **`Large Format Pool`**: A3, Legal, or specialty paper printers.
+     - **`Default Pool`**: General fallback queue.
+3. **Per-File Smart Routing**:
+   - In multi-file jobs (e.g. a customer printing 1 B&W PDF and 1 Color presentation), JetPrint routes the B&W document to the B&W printer pool and the Color document to the Color printer pool automatically.
+4. **Load Balancing**:
+   - If multiple printers belong to the same pool (e.g., three B&W laser printers), jobs are automatically load-balanced across active printers to prevent counter bottlenecks.
+5. **Test Print**:
+   - Click **Test Print** on any printer card to verify communication and alignment directly from the settings page.
+
+### Per-Page Pricing & Paper Sizes
+
+Under the **Pricing & Paper** tab:
+1. **Per-Page Pricing (₹)**:
+   - Set **B&W Price per Page** (default `₹2.00`) and **Color Price per Page** (default `₹10.00`).
+   - Prices sync to Cloud Relay instantly so customers see accurate charges on their phones.
+2. **Supported Paper Sizes**:
+   - Toggle enabled sizes (`A4`, `A3`, `Legal`, `Letter`). Disabled sizes are blocked on the mobile upload interface.
 
 ### Window & Display: Windowed Mode and Fullscreen Toggle
 
 - JetPrint launches in a centered, resizable windowed mode by default, making setup and initial testing convenient.
-- **Securing Fullscreen for Kiosks**: To prevent walk-up customers from resizing, minimizing, or exiting the application on unattended kiosks, the **Fullscreen Toggle** button is restricted to the password-protected **Owner Settings** panel under **Window & Display**.
-- In Owner Settings, click **Enter Fullscreen** to expand JetPrint edge-to-edge across the screen.
-- To exit fullscreen, re-open Owner Settings and click **Exit Fullscreen**, or use the keyboard shortcuts **`Escape`** or **`F11`**.
+- **Securing Fullscreen for Kiosks**: To prevent walk-up customers from resizing, minimizing, or exiting the application on unattended kiosks, the **Fullscreen Toggle** button is restricted to the password-protected **Dedicated Settings** space under **System & Updates**.
+- Click **Enter Fullscreen** to expand JetPrint edge-to-edge across the screen.
+- To exit fullscreen, re-open Settings and click **Exit Fullscreen**, or use the keyboard shortcuts **`Escape`** or **`F11`**.
 
 ### Storage Folder & System Diagnostic Logs
 
-- **Storage Location**: Displays the active path (`~/Documents/JetPrint KIOSK`) and current disk usage. Click **Open Folder** to reveal the folder in Finder / File Explorer, or click **Browse / Change Folder** to move the database and job directory to a custom path or external drive.
+- **Storage Location**: Displays the active path (`~/Documents/JetPrint KIOSK`) and current disk usage. Click **Browse** to change the root storage folder or point to an external drive.
 - **View System Logs**: Opens the dedicated Logs Window showing real-time event logs (relay pings, job dispatches, printer commands) with options to refresh, copy, or clear log history.
 
 ---
 
-## 7. Switching Between Self-Service Mode and Owner Mode
+## 7. Operating Modes: Self-Service, Owner Queue & Rush Hour Auto-Print
 
-In **Owner Settings → Kiosk Operating Mode**, choose a mode and click **Save Settings**:
+In **Settings → Operating Mode**, choose your shop mode and click **Save Changes**:
 
 - **Self-Service Mode** *(recommended for unattended kiosks)*:
-  - Shows the **QR code** and a **6-digit OTP keypad**.
-  - Customers scan, upload & pay on their phone, receive an OTP, and type it into the keypad to print.
-- **Owner Mode** *(recommended when staff operate the printer)*:
-  - Shows the **QR code** and a live **Print Job Queue**.
-  - Paid jobs appear automatically; click **Print** for each customer.
+  - Displays the customer QR code and 6-digit OTP keypad.
+  - Customers upload, pay on their phone, receive an OTP, and release their prints at the kiosk.
+- **Owner Mode** *(recommended when staff operate the print counters)*:
+  - Displays the QR code and a live **Print Job Queue**.
+  - Paid jobs appear in real time with file details, copies, and assigned printers.
+
+### ⚡ Rush Hour Auto-Print Mode (Zero-OTP Printing)
+
+During peak hours when long customer lines form, owners can eliminate waiting for OTP entry:
+- Toggle **⚡ Rush Hour Auto-Print** directly from the **Owner Queue header** (or inside Settings).
+- An active amber banner confirms: *"⚡ Rush Hour Mode Active: Incoming paid jobs will print automatically upon arrival without requiring an OTP."*
+- As soon as a customer completes payment on their phone, the job is dispatched directly to the matching printer pool with **zero clicks**.
+- Toggle it off anytime when rush hour ends.
+
+### Per-File Printer Overrides in Owner Queue
+
+Each file in a customer's job card displays an inline printer badge:
+- Shows the auto-routed printer (e.g. `[HP LaserJet (B&W)]`).
+- Click the dropdown to override and redirect that specific file to any other printer before printing.
+- Click **⚡ Direct Print** to immediately print that job without requiring an OTP.
 
 ### Filtering the Owner Mode Print Queue by Date
 
 The Print Queue header includes a date filter:
-
 - **Today** *(default)*: Shows only today's jobs.
 - **All**: Shows all saved jobs with timestamps.
 - **Date Picker**: Select any past date to view jobs from that day.

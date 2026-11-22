@@ -126,13 +126,18 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - Custom storage folder selection with live disk usage calculation.
 - **`src/logger.rs`**: Rotating application file logger writing to `logs/jetprint.log` with support for frontend retrieval and clearing.
 - **`src/db.rs`**: SQLite persistence (`rusqlite`, WAL mode).
-  - **`app_config`** (singleton row `id = 1`): `machine_id`, `relay_url`, `auth_token`, `password_hash`, `recovery_phrase_hash`, `bw_price_paise` (default `200`), `color_price_paise` (default `1000`), `default_printer`, `kiosk_mode` (`'self_service'` | `'owner'`), `setup_complete` (`0` | `1`).
+  - **`app_config`** (singleton row `id = 1`): `machine_id`, `relay_url`, `auth_token`, `password_hash`, `recovery_phrase_hash`, `bw_price_paise` (default `200`), `color_price_paise` (default `1000`), `default_printer`, `kiosk_mode` (`'self_service'` | `'owner'`), `rush_mode` (`0` | `1`), `setup_complete` (`0` | `1`).
+  - **`configured_printers`**: `name` (PK), `nickname`, `pool` (`bw` | `color` | `large_format` | `default`), `capabilities` (JSON), `is_enabled` (0/1), `priority` (integer).
   - **`print_jobs`**: `id` (PK), `otp` (indexed), `files_json`, `copies`, `color`, `status` (`pending` | `printing` | `printed` | `failed`), `created_at`, `printed_at`.
 - **`src/security.rs`**:
   - `generate_recovery_phrase()`: 12-word BIP39 mnemonic (`bip39` crate).
   - `normalize_phrase()` / `validate_phrase()`: Lowercases, trims whitespace, validates 12-word BIP39.
   - `hash_secret()` / `verify_secret()`: Argon2id PHC hashing/verification (`argon2` crate).
-- **`src/printer.rs`**: `list_system_printers()` / `print_job_files()` via the `printers` crate (`copies` and `ColorModel` raw properties) with auto-fit page scaling.
+- **`src/printer.rs`**:
+  - `list_system_printers()`: Enumerates system printers via the `printers` crate.
+  - `route_file_to_printer()`: Smart capability routing matching document properties (Color/BW, A4/A3/Legal) to pool queues with round-robin load balancing and fallback cascade.
+  - `print_job_files_pooled()`: Dispatches each file in a job to its resolved printer.
+  - `print_test_page()`: Sends an aligned diagnostic test page to any selected printer.
 - **`src/ws_client.rs`**:
   - `build_ws_url()`: Converts `http(s)://` to `ws(s)://.../ws`.
   - `spawn_relay_loop()`: Connects via `tokio-tungstenite`, sends `auth` (persisting returned `auth_token`), downloads `job_dispatch` files via `reqwest` (Bearer auth) into `storage.jobs_dir()`, inserts job into SQLite, sends `job_ack`, emits `job-received` and `relay-status`.
@@ -155,8 +160,12 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 | `clear_logs` | Logs | — | `void` | Clears diagnostic log file contents. |
 | `open_logs_window` | Logs | — | `void` | Opens standalone Tauri window to monitor live logs. |
 | `list_printers` | Printer | — | `PrinterInfo[]` | Enumerates available OS printers (CUPS / spooler). |
-| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Validates OTP and dispatches job files to printer. |
-| `list_jobs` | Print | `limit?: number` | `PrintJob[]` | Queries job history from local SQLite database. |
+| `get_configured_printers` | Printer | — | `ConfiguredPrinter[]` | Loads configured printers, pool assignments, and capability tags. |
+| `save_configured_printers` | Printer | `printers: ConfiguredPrinter[]` | `void` | Persists printer pool configurations, nicknames, and active flags. |
+| `test_print` | Printer | `printerName: string` | `void` | Prints a diagnostic test alignment page on the target printer. |
+| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Validates OTP and dispatches job files using smart pool routing. |
+| `print_job_direct` | Print | `jobId: string, printerOverrides?: Record<string, string>` | `PrintResult` | Direct print without OTP (used in Owner Queue & Rush Hour Mode). |
+| `list_jobs` | Print | `limit?: number, date?: string` | `PrintJob[]` | Queries job history from local SQLite database. |
 | `cancel_job` | Print | `jobId: string` | `void` | Marks pending job as failed/cancelled. |
 | `connect_relay` | Relay | `relayUrl?: string` | `KioskState` | Updates relay address and forces WebSocket reconnection. |
 | `is_fullscreen` | Window | — | `boolean` | Queries current window fullscreen state. |
@@ -173,14 +182,15 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 ## 4. React / TypeScript Frontend (`desktop-kiosk/src/`)
 
-- **`src/api/tauri.ts`**: Typed wrappers around all 23 Tauri commands, event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
-- **`src/types.ts`**: TypeScript interfaces matching `src-tauri/src/models.rs` (`camelCase`).
-- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), and renders:
+- **`src/api/tauri.ts`**: Typed wrappers around all Tauri commands (including printer pooling and direct print), event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
+- **`src/types.ts`**: TypeScript interfaces matching `src-tauri/src/models.rs` (`camelCase`), including `ConfiguredPrinter`, `PrinterPoolType`, and `PrinterPoolConfig`.
+- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), handles Rush Hour Auto-Print on incoming jobs, and renders:
   - `QrPanel.tsx`: QR code for `<relayUrl>/upload?machine_id=<machineId>` and pricing.
   - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode).
-  - `OwnerModeQueue.tsx`: Live job queue with **Print** buttons (Owner mode).
+  - `OwnerModeQueue.tsx`: Live job queue with **⚡ Rush Hour Auto-Print** header toggle, per-file auto-routed printer badges with quick dropdown overrides, and **⚡ Direct Print** actions.
   - `FirstRunWizard.tsx`: First-run password creation & BIP39 phrase confirmation.
-  - `OwnerSettingsModal.tsx`: Password login, BIP39 reset, updater check/install banner, mode toggle, printer selector, pricing, relay URL, Window & Display controls, custom storage location picker, and diagnostic logs trigger.
+  - `OwnerUnlockModal.tsx`: Keypad PIN/Password authentication dialog before entering settings.
+  - `DedicatedSettingsPage.tsx`: Full-page settings workspace with sidebar navigation (Printers & Pools, Pricing & Paper, Mode, Relay, System & Updates) and top header controls.
   - `LogsWindow.tsx`: Dedicated live logs inspector.
 
 ---
