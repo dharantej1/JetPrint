@@ -92,6 +92,16 @@ impl RelayHandle {
             let _ = self.outgoing_tx.send(json);
         }
     }
+
+    /// Queues a `job_ack` WebSocket message to the Cloud Relay.
+    pub fn send_job_ack(&self, job_id: &str) {
+        let msg = OutgoingWsMessage::JobAck {
+            job_id: job_id.to_string(),
+        };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = self.outgoing_tx.send(json);
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -171,22 +181,96 @@ enum IncomingWsMessage {
     },
 }
 
-#[derive(Debug, Deserialize)]
-struct IncomingPrintSettings {
-    copies: u32,
-    color: bool,
+#[derive(Debug, Deserialize, Clone)]
+pub struct IncomingPrintSettings {
+    pub copies: u32,
+    pub color: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IncomingJobFile {
+    pub file_id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub download_url: String,
+    #[serde(default = "default_pages")]
+    pub page_count: u32,
+    #[serde(default)]
+    pub settings: Option<FilePrintSettings>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DispatchedJobPayload {
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub id: Option<String>,
+    pub otp: Option<String>,
+    pub print_settings: Option<IncomingPrintSettings>,
+    #[serde(default)]
+    pub copies: Option<u32>,
+    #[serde(default)]
+    pub color: Option<bool>,
+    #[serde(default)]
+    pub files: Vec<IncomingJobFile>,
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub job: Option<Box<DispatchedJobPayload>>,
+}
+
+impl DispatchedJobPayload {
+    pub fn resolved_job_id(&self) -> Option<String> {
+        self.job_id
+            .clone()
+            .or_else(|| self.id.clone())
+            .or_else(|| self.job.as_ref().and_then(|j| j.resolved_job_id()))
+    }
+
+    pub fn resolved_otp(&self) -> Option<String> {
+        self.otp
+            .clone()
+            .or_else(|| self.job.as_ref().and_then(|j| j.resolved_otp()))
+    }
+
+    pub fn resolved_copies(&self) -> u32 {
+        self.print_settings
+            .as_ref()
+            .map(|s| s.copies)
+            .or(self.copies)
+            .or_else(|| self.job.as_ref().map(|j| j.resolved_copies()))
+            .unwrap_or(1)
+            .max(1)
+    }
+
+    pub fn resolved_color(&self) -> bool {
+        self.print_settings
+            .as_ref()
+            .map(|s| s.color)
+            .or(self.color)
+            .or_else(|| self.job.as_ref().map(|j| j.resolved_color()))
+            .unwrap_or(false)
+    }
+
+    pub fn resolved_files(&self) -> Vec<IncomingJobFile> {
+        if !self.files.is_empty() {
+            self.files.clone()
+        } else if let Some(j) = &self.job {
+            j.resolved_files()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn resolved_created_at(&self) -> Option<String> {
+        self.created_at
+            .clone()
+            .or_else(|| self.job.as_ref().and_then(|j| j.resolved_created_at()))
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct IncomingJobFile {
-    file_id: String,
-    filename: String,
-    mime_type: String,
-    download_url: String,
-    #[serde(default = "default_pages")]
-    page_count: u32,
+pub struct ActiveJobsResponse {
     #[serde(default)]
-    settings: Option<FilePrintSettings>,
+    pub jobs: Vec<DispatchedJobPayload>,
 }
 
 fn default_pages() -> u32 {
@@ -350,6 +434,13 @@ pub fn spawn_relay_loop(app: AppHandle, storage: SharedStorage, relay: RelayHand
                                                     None,
                                                     Some(None),
                                                 );
+                                                let app_sync = app.clone();
+                                                let storage_sync = storage.clone();
+                                                let relay_sync = relay.clone();
+                                                let logger_sync = logger.clone();
+                                                tauri::async_runtime::spawn(async move {
+                                                    let _ = sync_active_jobs(&app_sync, &storage_sync, &relay_sync, &logger_sync).await;
+                                                });
                                             }
                                             WsTextAction::AckJob(ack_job_id) => {
                                                 if let Ok(ack_json) = serde_json::to_string(&OutgoingWsMessage::JobAck { job_id: ack_job_id }) {
@@ -502,88 +593,46 @@ async fn handle_ws_text(
             files,
             created_at,
         } => {
-            let job_dir = jobs_dir.join(&job_id);
-            if tokio::fs::create_dir_all(&job_dir).await.is_err() {
-                return WsTextAction::None;
-            }
-
-            let mut downloaded_files = Vec::with_capacity(files.len());
-            for f in files {
-                let url = if f.download_url.starts_with("http://")
-                    || f.download_url.starts_with("https://")
-                {
-                    f.download_url.clone()
-                } else {
-                    format!(
-                        "{}/{}",
-                        relay_url.trim_end_matches('/'),
-                        f.download_url.trim_start_matches('/')
-                    )
-                };
-
-                let mut req = http.get(&url);
-                if let Some(tok) = active_token.as_deref() {
-                    req = req.bearer_auth(tok);
+            match download_and_save_job(
+                http,
+                jobs_dir,
+                relay_url,
+                active_token.as_deref(),
+                db,
+                logger,
+                &job_id,
+                &otp,
+                print_settings.copies,
+                print_settings.color,
+                &files,
+                created_at,
+            )
+            .await
+            {
+                Ok(job) => {
+                    logger.log(
+                        "INFO",
+                        &format!(
+                            "Received job {} (OTP {}, {} file(s))",
+                            job.id,
+                            job.otp,
+                            job.files.len()
+                        ),
+                    );
+                    let _ = app.emit(EVENT_JOB_RECEIVED, &job);
+                    WsTextAction::AckJob(job_id)
                 }
-
-                let Ok(resp) = req.send().await else {
-                    return WsTextAction::None;
-                };
-                if !resp.status().is_success() {
-                    return WsTextAction::None;
+                Err(err) => {
+                    logger.log(
+                        "ERROR",
+                        &format!(
+                            "Failed to process JobDispatch for job {} (OTP {}): {}",
+                            job_id, otp, err
+                        ),
+                    );
+                    WsTextAction::None
                 }
-                let Ok(bytes) = resp.bytes().await else {
-                    return WsTextAction::None;
-                };
-
-                let safe_name = sanitize_filename(&f.filename);
-                let is_pdf = f.mime_type.eq_ignore_ascii_case("application/pdf")
-                    || f.settings.as_ref().map(|s| s.print_ready).unwrap_or(false)
-                    || bytes.starts_with(b"%PDF");
-                let dest: PathBuf = if is_pdf && !safe_name.to_lowercase().ends_with(".pdf") {
-                    job_dir.join(format!("{}_{}.pdf", f.file_id, safe_name))
-                } else {
-                    job_dir.join(format!("{}_{}", f.file_id, safe_name))
-                };
-                if tokio::fs::write(&dest, &bytes).await.is_err() {
-                    return WsTextAction::None;
-                }
-
-                downloaded_files.push(JobFile {
-                    file_id: f.file_id,
-                    filename: f.filename,
-                    mime_type: if is_pdf {
-                        "application/pdf".to_string()
-                    } else {
-                        f.mime_type
-                    },
-                    local_path: dest.to_string_lossy().to_string(),
-                    pages: f.page_count,
-                    settings: f.settings,
-                    assigned_printer: None,
-                });
             }
-
-            let job = PrintJob {
-                id: job_id.clone(),
-                otp,
-                files: downloaded_files,
-                copies: print_settings.copies.max(1),
-                color: print_settings.color,
-                status: JobStatus::Pending,
-                created_at: created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
-                printed_at: None,
-            };
-
-            if db.insert_job(&job).is_ok() {
-                logger.log(
-                    "INFO",
-                    &format!("Received job {} (OTP {}, {} file(s))", job.id, job.otp, job.files.len()),
-                );
-                let _ = app.emit(EVENT_JOB_RECEIVED, &job);
-                return WsTextAction::AckJob(job_id);
-            }
-            WsTextAction::None
         }
         IncomingWsMessage::Error { code, message } => {
             eprintln!("[JetPrint WS] Relay error ({code:?}): {message}");
@@ -613,6 +662,282 @@ fn sanitize_filename(name: &str) -> String {
     } else {
         cleaned
     }
+}
+
+pub async fn download_and_save_job(
+    http: &reqwest::Client,
+    jobs_dir: &std::path::Path,
+    relay_url: &str,
+    auth_token: Option<&str>,
+    db: &Database,
+    logger: &AppLogger,
+    job_id: &str,
+    otp: &str,
+    copies: u32,
+    color: bool,
+    files: &[IncomingJobFile],
+    created_at: Option<String>,
+) -> Result<PrintJob, String> {
+    let job_dir = jobs_dir.join(job_id);
+    tokio::fs::create_dir_all(&job_dir)
+        .await
+        .map_err(|e| format!("Failed to create job directory {}: {e}", job_dir.display()))?;
+
+    let mut downloaded_files = Vec::with_capacity(files.len());
+
+    for f in files {
+        let url = if f.download_url.starts_with("http://")
+            || f.download_url.starts_with("https://")
+        {
+            f.download_url.clone()
+        } else {
+            format!(
+                "{}/{}",
+                relay_url.trim_end_matches('/'),
+                f.download_url.trim_start_matches('/')
+            )
+        };
+
+        let mut downloaded_bytes = None;
+        let mut last_error = String::new();
+
+        for attempt in 1..=3 {
+            let mut req = http.get(&url);
+            if let Some(tok) = auth_token {
+                req = req.bearer_auth(tok);
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        last_error = format!("HTTP {status}: {body}");
+                        logger.log(
+                            "WARN",
+                            &format!(
+                                "Attempt {attempt}/3 failed to download file {} ({}) for job {}: {}",
+                                f.file_id, f.filename, job_id, last_error
+                            ),
+                        );
+                    } else {
+                        match resp.bytes().await {
+                            Ok(bytes) => {
+                                downloaded_bytes = Some(bytes);
+                                break;
+                            }
+                            Err(e) => {
+                                last_error = format!("Failed reading response stream: {e}");
+                                logger.log(
+                                    "WARN",
+                                    &format!(
+                                        "Attempt {attempt}/3 failed reading bytes for file {} in job {}: {}",
+                                        f.file_id, job_id, last_error
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_error = format!("Network request failed: {e}");
+                    logger.log(
+                        "WARN",
+                        &format!(
+                            "Attempt {attempt}/3 request failed for file {} in job {}: {}",
+                            f.file_id, job_id, last_error
+                        ),
+                    );
+                }
+            }
+
+            if attempt < 3 {
+                tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+            }
+        }
+
+        let bytes = match downloaded_bytes {
+            Some(b) => b,
+            None => {
+                let err_msg = format!(
+                    "Failed to download file {} ({}) for job {} after 3 attempts: {}",
+                    f.file_id, f.filename, job_id, last_error
+                );
+                logger.log("ERROR", &err_msg);
+                return Err(err_msg);
+            }
+        };
+
+        let safe_name = sanitize_filename(&f.filename);
+        let is_pdf = f.mime_type.eq_ignore_ascii_case("application/pdf")
+            || f.settings.as_ref().map(|s| s.print_ready).unwrap_or(false)
+            || bytes.starts_with(b"%PDF");
+        let dest: PathBuf = if is_pdf && !safe_name.to_lowercase().ends_with(".pdf") {
+            job_dir.join(format!("{}_{}.pdf", f.file_id, safe_name))
+        } else {
+            job_dir.join(format!("{}_{}", f.file_id, safe_name))
+        };
+
+        if let Err(e) = tokio::fs::write(&dest, &bytes).await {
+            let err_msg = format!("Failed to write job file {}: {e}", dest.display());
+            logger.log("ERROR", &err_msg);
+            return Err(err_msg);
+        }
+
+        downloaded_files.push(JobFile {
+            file_id: f.file_id.clone(),
+            filename: f.filename.clone(),
+            mime_type: if is_pdf {
+                "application/pdf".to_string()
+            } else {
+                f.mime_type.clone()
+            },
+            local_path: dest.to_string_lossy().to_string(),
+            pages: f.page_count,
+            settings: f.settings.clone(),
+            assigned_printer: None,
+        });
+    }
+
+    let job = PrintJob {
+        id: job_id.to_string(),
+        otp: otp.to_string(),
+        files: downloaded_files,
+        copies: copies.max(1),
+        color,
+        status: JobStatus::Pending,
+        created_at: created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
+        printed_at: None,
+    };
+
+    db.insert_job(&job)?;
+    Ok(job)
+}
+
+pub async fn sync_active_jobs(
+    app: &AppHandle,
+    storage: &SharedStorage,
+    relay: &RelayHandle,
+    logger: &AppLogger,
+) -> Result<usize, String> {
+    let db = storage.db();
+    let config = db.get_config()?;
+    let Some(ref auth_token) = config.auth_token else {
+        return Ok(0);
+    };
+    if auth_token.trim().is_empty() {
+        return Ok(0);
+    }
+
+    let relay_url = config.relay_url.trim_end_matches('/');
+    let url = format!("{}/api/machines/{}/active-jobs", relay_url, config.machine_id);
+
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let resp = match http.get(&url).bearer_auth(auth_token).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            logger.log("WARN", &format!("Failed to query active jobs from relay: {e}"));
+            return Err(format!("Network error querying active jobs: {e}"));
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        logger.log("WARN", &format!("Relay returned error {status} for active-jobs: {body}"));
+        return Err(format!("Relay error {status}: {body}"));
+    }
+
+    let body_text = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read active-jobs response: {e}"))?;
+
+    let job_payloads: Vec<DispatchedJobPayload> = if let Ok(wrapper) =
+        serde_json::from_str::<ActiveJobsResponse>(&body_text)
+    {
+        wrapper.jobs
+    } else if let Ok(list) = serde_json::from_str::<Vec<DispatchedJobPayload>>(&body_text) {
+        list
+    } else {
+        logger.log(
+            "ERROR",
+            &format!("Failed to parse active-jobs response JSON: {body_text}"),
+        );
+        return Err("Invalid active-jobs response format".to_string());
+    };
+
+    let jobs_dir = storage.jobs_dir();
+    let mut synced_count = 0;
+
+    for payload in job_payloads {
+        let Some(job_id) = payload.resolved_job_id() else {
+            continue;
+        };
+        let Some(otp) = payload.resolved_otp() else {
+            continue;
+        };
+
+        // Check if job already exists locally in SQLite
+        if let Ok(Some(existing)) = db.get_job_by_id(&job_id) {
+            if existing.status == JobStatus::Printed
+                || existing.status == JobStatus::Cancelled
+                || existing.status == JobStatus::Expired
+            {
+                continue;
+            }
+            let files_exist = !existing.files.is_empty()
+                && existing
+                    .files
+                    .iter()
+                    .all(|f| std::path::Path::new(&f.local_path).exists());
+            if files_exist {
+                relay.send_job_ack(&job_id);
+                continue;
+            }
+        }
+
+        let copies = payload.resolved_copies();
+        let color = payload.resolved_color();
+        let files = payload.resolved_files();
+        let created_at = payload.resolved_created_at();
+
+        match download_and_save_job(
+            &http,
+            &jobs_dir,
+            relay_url,
+            Some(auth_token),
+            &db,
+            logger,
+            &job_id,
+            &otp,
+            copies,
+            color,
+            &files,
+            created_at,
+        )
+        .await
+        {
+            Ok(job) => {
+                logger.log(
+                    "INFO",
+                    &format!("Synced active job {} (OTP {}) from relay", job.id, job.otp),
+                );
+                let _ = app.emit(EVENT_JOB_RECEIVED, &job);
+                relay.send_job_ack(&job.id);
+                synced_count += 1;
+            }
+            Err(e) => {
+                logger.log("ERROR", &format!("Failed to sync active job {job_id}: {e}"));
+            }
+        }
+    }
+
+    Ok(synced_count)
 }
 
 #[cfg(test)]
@@ -742,5 +1067,66 @@ mod tests {
         assert_eq!(val["job_id"], "job-123");
         assert_eq!(val["status"], "failed");
         assert_eq!(val["error"], "Printer offline");
+    }
+
+    #[test]
+    fn serializes_job_ack_message() {
+        let msg = OutgoingWsMessage::JobAck {
+            job_id: "job-ack-123".to_string(),
+        };
+        let val: serde_json::Value = serde_json::to_value(&msg).expect("serialize");
+        assert_eq!(val["type"], "job_ack");
+        assert_eq!(val["job_id"], "job-ack-123");
+    }
+
+    #[test]
+    fn parses_dispatched_job_payload_flat_and_nested() {
+        let json_nested = r#"{
+            "job_id": "job-recovered-1",
+            "otp": "199247",
+            "print_settings": { "copies": 1, "color": false },
+            "files": [{
+                "file_id": "file-rec-1",
+                "filename": "doc.pdf",
+                "mime_type": "application/pdf",
+                "download_url": "/api/jobs/job-recovered-1/files/file-rec-1",
+                "page_count": 2
+            }],
+            "job": {
+                "job_id": "job-recovered-1",
+                "otp": "199247"
+            }
+        }"#;
+        let payload: DispatchedJobPayload = serde_json::from_str(json_nested).expect("valid json");
+        assert_eq!(payload.resolved_job_id().as_deref(), Some("job-recovered-1"));
+        assert_eq!(payload.resolved_otp().as_deref(), Some("199247"));
+        assert_eq!(payload.resolved_copies(), 1);
+        assert!(!payload.resolved_color());
+        assert_eq!(payload.resolved_files().len(), 1);
+        assert_eq!(payload.resolved_files()[0].file_id, "file-rec-1");
+    }
+
+    #[test]
+    fn parses_active_jobs_response() {
+        let json = r#"{
+            "machine_id": "m-123",
+            "jobs": [{
+                "job_id": "job-active-1",
+                "otp": "123456",
+                "print_settings": { "copies": 2, "color": true },
+                "files": [{
+                    "file_id": "f-act-1",
+                    "filename": "flyer.png",
+                    "mime_type": "image/png",
+                    "download_url": "http://relay.example.com/api/jobs/job-active-1/files/f-act-1"
+                }]
+            }]
+        }"#;
+        let resp: ActiveJobsResponse = serde_json::from_str(json).expect("valid active jobs json");
+        assert_eq!(resp.jobs.len(), 1);
+        assert_eq!(resp.jobs[0].resolved_job_id().as_deref(), Some("job-active-1"));
+        assert_eq!(resp.jobs[0].resolved_otp().as_deref(), Some("123456"));
+        assert_eq!(resp.jobs[0].resolved_copies(), 2);
+        assert!(resp.jobs[0].resolved_color());
     }
 }

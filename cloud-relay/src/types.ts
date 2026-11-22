@@ -88,6 +88,8 @@ export interface PrintJobRecord {
   createdAt: number;
   paidAt?: number;
   dispatchedAt?: number;
+  acknowledged?: boolean;
+  acknowledgedAt?: number;
 }
 
 // ============================================================================

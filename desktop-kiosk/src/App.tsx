@@ -13,6 +13,7 @@ import {
   printJobDirect,
   resetMachineIdentity,
   setFullscreen,
+  syncActiveJobs,
   toggleFullscreen,
   updateSettings,
   verifyOtpAndPrint,
@@ -195,6 +196,9 @@ const KioskApp: React.FC = () => {
     const date =
       dateOverride === undefined ? selectedDateRef.current : dateOverride;
     try {
+      if (kioskModeRef.current === "owner") {
+        await syncActiveJobs().catch(() => {});
+      }
       const nextJobs = await listJobs(undefined, date ?? undefined);
       setJobs(nextJobs);
     } catch {
@@ -304,6 +308,7 @@ const KioskApp: React.FC = () => {
       setRelayMessage(state.relayMessage);
       setRelayAuthError(state.relayAuthError);
       if (state.kioskMode === "owner") {
+        await syncActiveJobs().catch(() => {});
         const nextJobs = await listJobs(undefined, selectedDateRef.current ?? undefined);
         setJobs(nextJobs);
         if (isRushActive) {

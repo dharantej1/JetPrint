@@ -200,9 +200,91 @@ pub async fn verify_otp_and_print(
     let _print_guard = PRINT_LOCK.lock().await;
 
     let db = state.storage.db();
-    let job = db
-        .get_job_by_otp(&trimmed)?
-        .ok_or_else(|| "No print job found for this OTP".to_string())?;
+    let job = match db.get_job_by_otp(&trimmed)? {
+        Some(j) => j,
+        None => {
+            // Fall back to querying Cloud Relay: GET /api/jobs/by-otp/:otp
+            state.logger.log(
+                "INFO",
+                &format!("OTP {} not found in local DB, querying Cloud Relay fallback", trimmed),
+            );
+            let cfg = db.get_config()?;
+            let relay_url = cfg.relay_url.trim_end_matches('/');
+            let auth_token = cfg.auth_token.as_deref().ok_or_else(|| {
+                "No print job found for this OTP (kiosk not registered with relay)".to_string()
+            })?;
+
+            let http = reqwest::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+
+            let url = format!("{}/api/jobs/by-otp/{}", relay_url, trimmed);
+            let resp = http
+                .get(&url)
+                .bearer_auth(auth_token)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to reach relay for OTP fallback: {e}"))?;
+
+            if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err("No print job found for this OTP".to_string());
+            }
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let err_text = resp.text().await.unwrap_or_default();
+                state.logger.log(
+                    "WARN",
+                    &format!("Relay OTP lookup failed with {status}: {err_text}"),
+                );
+                return Err("No print job found for this OTP".to_string());
+            }
+
+            let resp_text = resp
+                .text()
+                .await
+                .map_err(|e| format!("Failed to read relay response: {e}"))?;
+
+            let payload: crate::ws_client::DispatchedJobPayload = serde_json::from_str(&resp_text)
+                .map_err(|e| format!("Invalid job data received from relay: {e}"))?;
+
+            let job_id = payload
+                .resolved_job_id()
+                .ok_or_else(|| "Missing job_id in relay response".to_string())?;
+            let job_otp = payload.resolved_otp().unwrap_or_else(|| trimmed.clone());
+            let copies = payload.resolved_copies();
+            let color = payload.resolved_color();
+            let files = payload.resolved_files();
+            let created_at = payload.resolved_created_at();
+
+            let downloaded_job = crate::ws_client::download_and_save_job(
+                &http,
+                &state.storage.jobs_dir(),
+                relay_url,
+                Some(auth_token),
+                &db,
+                &state.logger,
+                &job_id,
+                &job_otp,
+                copies,
+                color,
+                &files,
+                created_at,
+            )
+            .await?;
+
+            state.relay.send_job_ack(&downloaded_job.id);
+            state.logger.log(
+                "INFO",
+                &format!(
+                    "Successfully recovered and saved job {} via OTP fallback",
+                    downloaded_job.id
+                ),
+            );
+            downloaded_job
+        }
+    };
 
     if job.status == JobStatus::Printed {
         return Err("This OTP has already been printed".to_string());
@@ -487,6 +569,14 @@ pub async fn test_print(printer_name: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || print_test_page(&printer_name))
         .await
         .map_err(|e| format!("Print worker error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn sync_active_jobs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    crate::ws_client::sync_active_jobs(&app, &state.storage, &state.relay, &state.logger).await
 }
 
 #[tauri::command]

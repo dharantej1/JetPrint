@@ -81,6 +81,16 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
   const [queueTab, setQueueTab] = useState<"action" | "completed" | "printed" | "all">("action");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showRushBanner, setShowRushBanner] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  const handleRefreshClick = async () => {
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   useEffect(() => {
     if (rushHourEnabled) {
@@ -190,10 +200,11 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
           <button
             type="button"
             className="owner-action-btn"
-            onClick={onRefresh}
-            title="Refresh jobs from database"
+            onClick={handleRefreshClick}
+            disabled={isRefreshing}
+            title="Refresh jobs and sync unprinted jobs from Cloud Relay"
           >
-            <RefreshCw size={15} />
+            <RefreshCw size={15} className={isRefreshing ? "spin" : ""} />
             <span>Refresh</span>
           </button>
         </div>

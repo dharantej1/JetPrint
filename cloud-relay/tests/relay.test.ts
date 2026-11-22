@@ -38,6 +38,32 @@ function nextMessage<T = Record<string, unknown>>(ws: WebSocket): Promise<T> {
   });
 }
 
+function createMessageQueue(ws: WebSocket) {
+  const queue: unknown[] = [];
+  const waiters: Array<(msg: unknown) => void> = [];
+
+  ws.on('message', (data: WebSocket.RawData) => {
+    const parsed = JSON.parse(data.toString('utf8'));
+    if (waiters.length > 0) {
+      const waiter = waiters.shift()!;
+      waiter(parsed);
+    } else {
+      queue.push(parsed);
+    }
+  });
+
+  return {
+    next: <T = Record<string, unknown>>(): Promise<T> => {
+      if (queue.length > 0) {
+        return Promise.resolve(queue.shift() as T);
+      }
+      return new Promise<T>((resolve) => {
+        waiters.push((val) => resolve(val as T));
+      });
+    },
+  };
+}
+
 async function makeTestPdf(pageCount: number): Promise<Buffer> {
   const doc = await PDFDocument.create();
   for (let i = 0; i < pageCount; i++) {
@@ -998,5 +1024,425 @@ describe('JetPrint Cloud Relay', () => {
     const page0 = resultDoc.getPage(0).getSize();
     expect(Math.round(page0.width)).toBe(842); // A4 landscape width
     expect(Math.round(page0.height)).toBe(595); // A4 landscape height
+  });
+
+  it('recovers and flushes unacknowledged jobs when kiosk connects/reconnects, and tracks job_ack', async () => {
+    // 1. Register kiosk
+    const ws1 = await connectWs(wsUrl);
+    ws1.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'offline-test-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const reg = await nextMessage<{ machine_id: string; auth_token: string }>(ws1);
+    expect(reg.machine_id).toBe('offline-test-kiosk');
+    // Close websocket to simulate kiosk going offline or closed
+    ws1.close();
+
+    // 2. Customer uploads a job while kiosk is offline
+    const pdfBuffer = await makeTestPdf(1);
+    const form = new FormData();
+    form.append('machine_id', 'offline-test-kiosk');
+    form.append('copies', '1');
+    form.append('color', 'false');
+    form.append(
+      'files',
+      new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' }),
+      'offline_doc.pdf'
+    );
+
+    const uploadRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    expect(uploadRes.status).toBe(201);
+    const job = (await uploadRes.json()) as { job_id: string };
+
+    // 3. Customer pays for job while kiosk is still offline
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job.job_id}/pay`, {
+      method: 'POST',
+    });
+    expect(payRes.status).toBe(200);
+    const payData = (await payRes.json()) as { otp: string; status: string; dispatched: boolean };
+    expect(payData.status).toBe('paid');
+    expect(payData.otp).toMatch(/^\d{6}$/);
+    expect(payData.dispatched).toBe(false); // Kiosk was offline, so not dispatched yet
+
+    // 4. Kiosk opens / reconnects and sends 'auth'
+    const ws2 = await connectWs(wsUrl);
+    const mq2 = createMessageQueue(ws2);
+    ws2.send(
+      JSON.stringify({
+        type: 'auth',
+        machine_id: reg.machine_id,
+        auth_token: reg.auth_token,
+      })
+    );
+    const authOk = await mq2.next<{ type: string }>();
+    expect(authOk.type).toBe('auth_ok');
+
+    // flushPendingJobs should automatically dispatch the offline paid job
+    const dispatch = await mq2.next<{
+      type: string;
+      job_id: string;
+      otp: string;
+    }>();
+    expect(dispatch.type).toBe('job_dispatch');
+    expect(dispatch.job_id).toBe(job.job_id);
+    expect(dispatch.otp).toBe(payData.otp);
+
+    // 5. Send job_ack
+    ws2.send(
+      JSON.stringify({
+        type: 'job_ack',
+        job_id: job.job_id,
+      })
+    );
+
+    // Give a brief tick for ack processing
+    await new Promise((r) => setTimeout(r, 20));
+    ws2.close();
+
+    // 6. Reconnecting again should NOT re-dispatch already acknowledged job
+    const ws3 = await connectWs(wsUrl);
+    let extraDispatched = false;
+    ws3.on('message', (raw) => {
+      const parsed = JSON.parse(raw.toString('utf8'));
+      if (parsed.type === 'job_dispatch') {
+        extraDispatched = true;
+      }
+    });
+    ws3.send(
+      JSON.stringify({
+        type: 'auth',
+        machine_id: reg.machine_id,
+        auth_token: reg.auth_token,
+      })
+    );
+    const authOk3 = await nextMessage<{ type: string }>(ws3);
+    expect(authOk3.type).toBe('auth_ok');
+
+    // Wait 50ms to ensure no unexpected job_dispatch arrives
+    await new Promise((r) => setTimeout(r, 50));
+    expect(extraDispatched).toBe(false);
+    ws3.close();
+  });
+
+  it('allows kiosk to fetch job details and files by OTP via GET /api/jobs/by-otp/:otp', async () => {
+    // 1. Register kiosk
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'otp-kiosk-01',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const reg = await nextMessage<{ machine_id: string; auth_token: string }>(ws);
+    ws.close();
+
+    // 2. Upload and pay job
+    const pdfBuffer = await makeTestPdf(2);
+    const form = new FormData();
+    form.append('machine_id', 'otp-kiosk-01');
+    form.append('copies', '1');
+    form.append('color', 'false');
+    form.append(
+      'files',
+      new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' }),
+      'invoice.pdf'
+    );
+
+    const uploadRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    const job = (await uploadRes.json()) as { job_id: string };
+
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job.job_id}/pay`, {
+      method: 'POST',
+    });
+    const payData = (await payRes.json()) as { otp: string };
+    const otp = payData.otp;
+
+    // 3. Test GET /api/jobs/by-otp/:otp auth requirements
+    const unauthRes = await fetch(`${baseUrl}/api/jobs/by-otp/${otp}`);
+    expect(unauthRes.status).toBe(401);
+
+    const wrongTokenRes = await fetch(`${baseUrl}/api/jobs/by-otp/${otp}`, {
+      headers: { Authorization: 'Bearer tok_wrong_123' },
+    });
+    expect(wrongTokenRes.status).toBe(403);
+
+    const notFoundOtpRes = await fetch(`${baseUrl}/api/jobs/by-otp/999999`, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(notFoundOtpRes.status).toBe(404);
+
+    // 4. Successful fetch with valid token
+    const successRes = await fetch(`${baseUrl}/api/jobs/by-otp/${otp}`, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(successRes.status).toBe(200);
+    const body = (await successRes.json()) as {
+      job_id: string;
+      otp: string;
+      print_settings: { copies: number; color: boolean };
+      files: Array<{ file_id: string; filename: string; download_url: string }>;
+    };
+    expect(body.job_id).toBe(job.job_id);
+    expect(body.otp).toBe(otp);
+    expect(body.files).toHaveLength(1);
+    expect(body.files[0].filename).toBe('invoice.pdf');
+    expect(body.files[0].download_url).toContain(`/api/jobs/${job.job_id}/files/`);
+
+    // 5. Test downloading file with the provided download_url
+    const downloadRes = await fetch(body.files[0].download_url, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(downloadRes.status).toBe(200);
+    const downloadedBuf = await downloadRes.arrayBuffer();
+    expect(downloadedBuf.byteLength).toBeGreaterThan(0);
+  });
+
+  it('lists unprinted paid jobs via GET /api/machines/:machineId/active-jobs', async () => {
+    // 1. Register kiosk
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'active-jobs-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const reg = await nextMessage<{ machine_id: string; auth_token: string }>(ws);
+
+    // 2. Upload two jobs, pay only one
+    const pdfBuffer = await makeTestPdf(1);
+    const createJob = async (name: string) => {
+      const form = new FormData();
+      form.append('machine_id', 'active-jobs-kiosk');
+      form.append('copies', '1');
+      form.append('color', 'false');
+      form.append(
+        'files',
+        new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' }),
+        name
+      );
+      const res = await fetch(`${baseUrl}/api/jobs`, { method: 'POST', body: form });
+      return (await res.json()) as { job_id: string };
+    };
+
+    const job1 = await createJob('job1.pdf');
+    const job2 = await createJob('job2.pdf');
+
+    // Pay only job1
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job1.job_id}/pay`, { method: 'POST' });
+    const payData = (await payRes.json()) as { otp: string };
+
+    // 3. Test active-jobs endpoint authentication
+    const unauthRes = await fetch(`${baseUrl}/api/machines/active-jobs-kiosk/active-jobs`);
+    expect(unauthRes.status).toBe(401);
+
+    const wrongTokenRes = await fetch(`${baseUrl}/api/machines/active-jobs-kiosk/active-jobs`, {
+      headers: { Authorization: 'Bearer tok_invalid' },
+    });
+    expect(wrongTokenRes.status).toBe(403);
+
+    // 4. Test active-jobs lists only paid unprinted job1
+    const activeRes = await fetch(`${baseUrl}/api/machines/active-jobs-kiosk/active-jobs`, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(activeRes.status).toBe(200);
+    const activeData = (await activeRes.json()) as {
+      machine_id: string;
+      jobs: Array<{ job_id: string; otp: string }>;
+    };
+    expect(activeData.machine_id).toBe('active-jobs-kiosk');
+    expect(activeData.jobs).toHaveLength(1);
+    expect(activeData.jobs[0].job_id).toBe(job1.job_id);
+    expect(activeData.jobs[0].otp).toBe(payData.otp);
+
+    // 5. Update job1 status to 'printed' and verify active-jobs becomes empty
+    ws.send(
+      JSON.stringify({
+        type: 'job_status_update',
+        job_id: job1.job_id,
+        status: 'printed',
+      })
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    const activeRes2 = await fetch(`${baseUrl}/api/machines/active-jobs-kiosk/active-jobs`, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    const activeData2 = (await activeRes2.json()) as { jobs: Array<{ job_id: string }> };
+    expect(activeData2.jobs).toHaveLength(0);
+
+    ws.close();
+  });
+
+  it('covers exact scenario: kiosk closed -> customer pays and gets OTP 199247 -> kiosk opens -> job appears and prints', async () => {
+    // 1. Initial kiosk registration with cloud relay
+    const wsInit = await connectWs(wsUrl);
+    wsInit.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'downtown-kiosk-99',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const reg = await nextMessage<{ machine_id: string; auth_token: string }>(wsInit);
+    expect(reg.machine_id).toBe('downtown-kiosk-99');
+
+    // Kiosk is closed! (WebSocket disconnects)
+    wsInit.close();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // 2. Customer visits mobile web UI, uploads a 2-page document while kiosk is closed
+    const pdfBuf = await makeTestPdf(2);
+    const form = new FormData();
+    form.append('machine_id', 'downtown-kiosk-99');
+    form.append('copies', '1');
+    form.append('color', 'false');
+    form.append(
+      'files',
+      new Blob([new Uint8Array(pdfBuf)], { type: 'application/pdf' }),
+      'term_paper.pdf'
+    );
+
+    const uploadRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    expect(uploadRes.status).toBe(201);
+    const job = (await uploadRes.json()) as { job_id: string; amount_paise: number };
+    expect(job.amount_paise).toBe(400);
+
+    // 3. Customer completes payment and receives OTP 199247
+    const payRes = await fetch(`${baseUrl}/api/dev/jobs/${job.job_id}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp: '199247' }),
+    });
+    expect(payRes.status).toBe(200);
+    const payData = (await payRes.json()) as {
+      job_id: string;
+      otp: string;
+      status: string;
+      dispatched: boolean;
+    };
+    expect(payData.job_id).toBe(job.job_id);
+    expect(payData.otp).toBe('199247');
+    expect(payData.status).toBe('paid');
+    expect(payData.dispatched).toBe(false); // Kiosk is offline/closed, not dispatched yet
+
+    // Customer status check shows paid with OTP 199247
+    const statusRes = await fetch(`${baseUrl}/api/jobs/${job.job_id}/status`);
+    const statusData = (await statusRes.json()) as { status: string; otp: string };
+    expect(statusData.status).toBe('paid');
+    expect(statusData.otp).toBe('199247');
+
+    // Kiosk on-demand pull by OTP (GET /api/jobs/by-otp/199247) is available
+    const byOtpRes = await fetch(`${baseUrl}/api/jobs/by-otp/199247`, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(byOtpRes.status).toBe(200);
+    const byOtpData = (await byOtpRes.json()) as {
+      job_id: string;
+      otp: string;
+      files: Array<{ download_url: string }>;
+    };
+    expect(byOtpData.job_id).toBe(job.job_id);
+    expect(byOtpData.otp).toBe('199247');
+    expect(byOtpData.files).toHaveLength(1);
+
+    // 4. Next morning: Kiosk opens! (WebSocket reconnects and authenticates)
+    const kioskWs = await connectWs(wsUrl);
+    const messageQueue = createMessageQueue(kioskWs);
+
+    kioskWs.send(
+      JSON.stringify({
+        type: 'auth',
+        machine_id: reg.machine_id,
+        auth_token: reg.auth_token,
+      })
+    );
+    const authMsg = await messageQueue.next<{ type: string }>();
+    expect(authMsg.type).toBe('auth_ok');
+
+    // flushPendingJobs automatically pushes the paid offline job
+    const dispatchedJob = await messageQueue.next<{
+      type: string;
+      job_id: string;
+      otp: string;
+      print_settings: { copies: number; color: boolean };
+      files: Array<{ file_id: string; filename: string; download_url: string }>;
+    }>();
+    expect(dispatchedJob.type).toBe('job_dispatch');
+    expect(dispatchedJob.job_id).toBe(job.job_id);
+    expect(dispatchedJob.otp).toBe('199247');
+    expect(dispatchedJob.print_settings.copies).toBe(1);
+    expect(dispatchedJob.files[0].filename).toBe('term_paper.pdf');
+
+    // 5. Kiosk sends job_ack to acknowledge receipt of the job
+    kioskWs.send(
+      JSON.stringify({
+        type: 'job_ack',
+        job_id: dispatchedJob.job_id,
+      })
+    );
+
+    // 6. Kiosk downloads print files using authenticated download_url (resolving relative url with baseUrl if needed)
+    const fileDownloadUrl = dispatchedJob.files[0].download_url.startsWith('http')
+      ? dispatchedJob.files[0].download_url
+      : `${baseUrl}${dispatchedJob.files[0].download_url}`;
+    const fileRes = await fetch(fileDownloadUrl, {
+      headers: { Authorization: `Bearer ${reg.auth_token}` },
+    });
+    expect(fileRes.status).toBe(200);
+    const downloadedBuf = Buffer.from(await fileRes.arrayBuffer());
+    expect(downloadedBuf.byteLength).toBeGreaterThan(0);
+
+    // 7. Kiosk prints the job: updates status to 'printing', then 'printed'
+    kioskWs.send(
+      JSON.stringify({
+        type: 'job_status_update',
+        job_id: dispatchedJob.job_id,
+        status: 'printing',
+      })
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    let currentStatus = await fetch(`${baseUrl}/api/jobs/${job.job_id}/status`);
+    expect(((await currentStatus.json()) as { status: string }).status).toBe('printing');
+
+    kioskWs.send(
+      JSON.stringify({
+        type: 'job_status_update',
+        job_id: dispatchedJob.job_id,
+        status: 'printed',
+      })
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    currentStatus = await fetch(`${baseUrl}/api/jobs/${job.job_id}/status`);
+    expect(((await currentStatus.json()) as { status: string }).status).toBe('printed');
+
+    // 8. Active jobs list is now empty for this kiosk
+    const activeJobsRes = await fetch(
+      `${baseUrl}/api/machines/downtown-kiosk-99/active-jobs`,
+      {
+        headers: { Authorization: `Bearer ${reg.auth_token}` },
+      }
+    );
+    const activeJobsData = (await activeJobsRes.json()) as {
+      jobs: Array<{ job_id: string }>;
+    };
+    expect(activeJobsData.jobs).toHaveLength(0);
+
+    kioskWs.close();
   });
 });

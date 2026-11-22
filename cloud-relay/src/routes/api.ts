@@ -40,6 +40,35 @@ function getBaseUrl(req: Request, config: RelayConfig): string {
   return `${req.protocol}://${host}`;
 }
 
+function formatJobForKiosk(job: PrintJobRecord, baseUrl: string) {
+  const base = (baseUrl || '').replace(/\/+$/, '');
+  return {
+    job_id: job.jobId,
+    machine_id: job.machineId,
+    order_id: job.orderId,
+    otp: job.otp,
+    status: job.status,
+    amount_paise: job.amountPaise,
+    print_settings: job.printSettings,
+    total_pages: job.totalPages,
+    pricing: job.pricingSnapshot,
+    files: job.files.map((f) => ({
+      file_id: f.fileId,
+      filename: f.originalName,
+      mime_type: f.mimeType,
+      size_bytes: f.sizeBytes,
+      page_count: f.pageCount,
+      selected_pages: f.selectedPages,
+      billable_sheets: f.billableSheets,
+      amount_paise: f.amountPaise,
+      settings: f.settings,
+      download_url: base ? `${base}${f.downloadPath}` : f.downloadPath,
+    })),
+    created_at: new Date(job.createdAt).toISOString(),
+    paid_at: job.paidAt ? new Date(job.paidAt).toISOString() : undefined,
+  };
+}
+
 function extractBearerToken(req: Request): string | undefined {
   const authHeader = req.get('authorization');
   if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
@@ -58,9 +87,10 @@ function completeAndDispatchPaidJob(
   store: RelayStore,
   wsHub: KioskWsHub,
   jobIdOrOrderId: string,
-  paymentId?: string
+  paymentId?: string,
+  customOtp?: string
 ): { job: PrintJobRecord; dispatched: boolean } | undefined {
-  const result = store.markJobPaidAndGenerateOtp(jobIdOrOrderId, paymentId);
+  const result = store.markJobPaidAndGenerateOtp(jobIdOrOrderId, paymentId, customOtp);
   if (!result) return undefined;
 
   const dispatched = result.newlyPaid
@@ -125,6 +155,39 @@ export function createApiRouter(
 
   router.get('/machines/:machineId/info', (req: Request, res: Response) => {
     sendKioskInfo(req.params.machineId, res);
+  });
+
+  router.get('/machines/:machineId/active-jobs', (req: Request, res: Response) => {
+    const token = extractBearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: 'Missing kiosk auth token' });
+      return;
+    }
+
+    const rawId = req.params.machineId;
+    const cleanId = String(rawId || '').trim();
+    if (!cleanId) {
+      res.status(400).json({ error: 'machine_id is required' });
+      return;
+    }
+
+    const kiosk = store.getKiosk(cleanId);
+    if (!kiosk) {
+      res.status(404).json({ error: 'Machine not found' });
+      return;
+    }
+
+    if (kiosk.authToken !== token) {
+      res.status(403).json({ error: 'Invalid auth token for this machine' });
+      return;
+    }
+
+    const baseUrl = getBaseUrl(req, config);
+    const activeJobs = store.getActiveJobs(cleanId);
+    res.json({
+      machine_id: cleanId,
+      jobs: activeJobs.map((j) => formatJobForKiosk(j, baseUrl)),
+    });
   });
 
   router.get('/kiosk/:machineId', (req: Request, res: Response) => {
@@ -324,6 +387,39 @@ export function createApiRouter(
       }
     }
   );
+
+  router.get('/jobs/by-otp/:otp', (req: Request, res: Response) => {
+    const token = extractBearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: 'Missing kiosk auth token' });
+      return;
+    }
+
+    const rawOtp = String(req.params.otp || '').trim();
+    if (!rawOtp) {
+      res.status(400).json({ error: 'OTP is required' });
+      return;
+    }
+
+    const job = store.getJobByOtp(rawOtp);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found for provided OTP' });
+      return;
+    }
+
+    const kiosk = store.getKiosk(job.machineId);
+    if (!kiosk || kiosk.authToken !== token) {
+      res.status(403).json({ error: 'Invalid auth token for this machine' });
+      return;
+    }
+
+    const baseUrl = getBaseUrl(req, config);
+    const jobPayload = formatJobForKiosk(job, baseUrl);
+    res.json({
+      ...jobPayload,
+      job: jobPayload,
+    });
+  });
 
   router.get('/jobs/:jobId/status', (req: Request, res: Response) => {
     const job = store.getJob(String(req.params.jobId || ''));
@@ -531,13 +627,18 @@ export function createApiRouter(
     }
 
     const jobId = String(req.params.jobId || '');
+    const customOtp =
+      typeof req.body?.otp === 'string' && req.body.otp.trim()
+        ? req.body.otp.trim()
+        : undefined;
     const completed = completeAndDispatchPaidJob(
       req,
       config,
       store,
       wsHub,
       jobId,
-      `pay_dev_${crypto.randomBytes(6).toString('hex')}`
+      `pay_dev_${crypto.randomBytes(6).toString('hex')}`,
+      customOtp
     );
     if (!completed) {
       res.status(404).json({ error: 'Job not found' });

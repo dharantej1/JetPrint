@@ -200,6 +200,9 @@ export class KioskWsHub {
         if (ws.machineId) {
           this.store.touchKiosk(ws.machineId);
         }
+        if (msg.job_id) {
+          this.store.acknowledgeJob(msg.job_id);
+        }
         break;
       }
 
@@ -228,6 +231,7 @@ export class KioskWsHub {
           msg.status === 'failed' ||
           msg.status === 'cancelled'
         ) {
+          this.store.acknowledgeJob(msg.job_id);
           this.store.updateJobStatus(msg.job_id, msg.status, msg.error);
         }
         break;

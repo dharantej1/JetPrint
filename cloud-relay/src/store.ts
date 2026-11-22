@@ -12,6 +12,7 @@ export class RelayStore {
   private kiosks = new Map<string, KioskRecord>();
   private jobs = new Map<string, PrintJobRecord>();
   private orderToJob = new Map<string, string>();
+  private otpToJob = new Map<string, string>();
   private pendingDispatch = new Map<string, string[]>();
   private cleanupTimer?: NodeJS.Timeout;
 
@@ -218,6 +219,9 @@ export class RelayStore {
   createJob(job: PrintJobRecord): void {
     this.jobs.set(job.jobId, job);
     this.orderToJob.set(job.orderId, job.jobId);
+    if (job.otp) {
+      this.otpToJob.set(job.otp, job.jobId);
+    }
   }
 
   getJob(jobId: string): PrintJobRecord | undefined {
@@ -229,9 +233,27 @@ export class RelayStore {
     return jobId ? this.jobs.get(jobId) : undefined;
   }
 
+  getJobByOtp(otp: string): PrintJobRecord | undefined {
+    const clean = otp.trim();
+    if (!clean) return undefined;
+    const jobId = this.otpToJob.get(clean);
+    if (jobId) {
+      const job = this.jobs.get(jobId);
+      if (job && job.otp === clean) return job;
+    }
+    for (const job of this.jobs.values()) {
+      if (job.otp === clean) {
+        this.otpToJob.set(clean, job.jobId);
+        return job;
+      }
+    }
+    return undefined;
+  }
+
   markJobPaidAndGenerateOtp(
     jobIdOrOrderId: string,
-    paymentId?: string
+    paymentId?: string,
+    customOtp?: string
   ): { job: PrintJobRecord; newlyPaid: boolean } | undefined {
     const job =
       this.jobs.get(jobIdOrOrderId) ?? this.getJobByOrderId(jobIdOrOrderId);
@@ -241,7 +263,11 @@ export class RelayStore {
       return { job, newlyPaid: false };
     }
 
-    job.otp = crypto.randomInt(100000, 1000000).toString();
+    job.otp =
+      customOtp && customOtp.trim()
+        ? customOtp.trim()
+        : crypto.randomInt(100000, 1000000).toString();
+    this.otpToJob.set(job.otp, job.jobId);
     job.status = 'paid';
     job.paidAt = Date.now();
     if (paymentId) {
@@ -256,6 +282,14 @@ export class RelayStore {
       job.status = 'dispatched';
       job.dispatchedAt = Date.now();
     }
+  }
+
+  acknowledgeJob(jobId: string): PrintJobRecord | undefined {
+    const job = this.jobs.get(jobId);
+    if (!job) return undefined;
+    job.acknowledged = true;
+    job.acknowledgedAt = Date.now();
+    return job;
   }
 
   updateJobStatus(
@@ -278,12 +312,63 @@ export class RelayStore {
     }
   }
 
-  popPendingJobs(machineId: string): PrintJobRecord[] {
-    const ids = this.pendingDispatch.get(machineId) ?? [];
+  getUnacknowledgedPaidJobs(machineId: string): PrintJobRecord[] {
+    const ids = new Set(this.pendingDispatch.get(machineId) ?? []);
     this.pendingDispatch.delete(machineId);
-    return ids
-      .map((id) => this.jobs.get(id))
-      .filter((j): j is PrintJobRecord => Boolean(j));
+
+    const result: PrintJobRecord[] = [];
+    for (const job of this.jobs.values()) {
+      if (job.machineId !== machineId) continue;
+      if (!job.otp) continue;
+      // Only jobs that are paid or dispatched (not printed, failed, or cancelled)
+      if (job.status !== 'paid' && job.status !== 'dispatched') continue;
+      // Do not re-dispatch jobs that have already been acknowledged
+      if (job.acknowledged || job.acknowledgedAt) continue;
+
+      result.push(job);
+      ids.delete(job.jobId);
+    }
+
+    // Also include any jobs explicitly queued that are still valid and unacknowledged
+    for (const id of ids) {
+      const job = this.jobs.get(id);
+      if (
+        job &&
+        job.machineId === machineId &&
+        job.otp &&
+        job.status !== 'printed' &&
+        job.status !== 'cancelled' &&
+        !job.acknowledged &&
+        !job.acknowledgedAt &&
+        !result.some((r) => r.jobId === job.jobId)
+      ) {
+        result.push(job);
+      }
+    }
+
+    return result.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  popPendingJobs(machineId: string): PrintJobRecord[] {
+    return this.getUnacknowledgedPaidJobs(machineId);
+  }
+
+  getActiveJobs(machineId: string): PrintJobRecord[] {
+    const active: PrintJobRecord[] = [];
+    for (const job of this.jobs.values()) {
+      if (job.machineId !== machineId) continue;
+      if (!job.otp) continue;
+      if (
+        job.status === 'printed' ||
+        job.status === 'cancelled' ||
+        job.status === 'pending_payment' ||
+        job.status === 'expired'
+      ) {
+        continue;
+      }
+      active.push(job);
+    }
+    return active.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   async cleanupExpiredJobs(now = Date.now()): Promise<number> {
@@ -292,6 +377,9 @@ export class RelayStore {
       if (now - job.createdAt > this.config.fileTtlMs) {
         this.jobs.delete(jobId);
         this.orderToJob.delete(job.orderId);
+        if (job.otp) {
+          this.otpToJob.delete(job.otp);
+        }
         const jobDir = path.join(this.config.uploadDir, jobId);
         await fs.rm(jobDir, { recursive: true, force: true }).catch(() => {});
         cleaned++;

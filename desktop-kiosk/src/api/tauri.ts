@@ -104,6 +104,15 @@ export async function verifyOtpAndPrint(otp: string): Promise<PrintResult> {
   return invoke<PrintResult>("verify_otp_and_print", { otp });
 }
 
+export async function syncActiveJobs(): Promise<number> {
+  try {
+    return await invoke<number>("sync_active_jobs");
+  } catch (err) {
+    console.warn("syncActiveJobs error:", err);
+    return 0;
+  }
+}
+
 export async function cancelJob(jobId: string): Promise<PrintJob> {
   return invoke<PrintJob>("cancel_job", { jobId });
 }

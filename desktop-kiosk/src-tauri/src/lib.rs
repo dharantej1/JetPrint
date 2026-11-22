@@ -19,7 +19,7 @@ use commands::{
     get_configured_printers, get_kiosk_state, get_logs, install_update, is_fullscreen,
     keep_existing_data, list_jobs, list_printers, open_logs_window, pick_storage_folder,
     print_job_direct, reset_installation_data, reset_machine_identity, reset_password_with_phrase,
-    save_configured_printers, set_fullscreen, set_storage_path, test_print, toggle_fullscreen,
+    save_configured_printers, set_fullscreen, set_storage_path, sync_active_jobs, test_print, toggle_fullscreen,
     update_settings, verify_otp_and_print, verify_owner_password, AppState,
 };
 use db::{current_exe_fingerprint, Database};
@@ -117,6 +117,7 @@ pub fn run() {
             save_configured_printers,
             test_print,
             verify_otp_and_print,
+            sync_active_jobs,
             print_job_direct,
             list_jobs,
             cancel_job,
