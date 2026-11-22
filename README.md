@@ -89,13 +89,13 @@ Master-Detail hardware workspace with live interactive pool filter tabs (`B&W`, 
 <td width="33%" valign="top">
 
 ### ⚡ Rush Hour Zero-OTP Auto-Print
-Flip the high-visibility toolbar toggle in Owner Mode during peak hours to automatically dispatch incoming paid orders directly to the printer pool upon payment—eliminating customer OTP wait times and manual queue clicks.
+Flip the high-visibility toolbar toggle in Owner Mode during peak hours to automatically dispatch incoming paid orders directly to the printer pool upon payment—eliminating customer OTP wait times and manual queue clicks. Built with a sequential FIFO queue, strict concurrency locks, and an automatic pending-job recovery sweep.
 
 </td>
 <td width="33%" valign="top">
 
-### Dedicated Settings Space
-Ergonomic full-page Settings workspace: Master-Detail printer configuration, printer nicknames, capability tags, per-page pricing, display controls, and diagnostic logging.
+### 🎯 Orientation Fidelity System
+Smart JPEG EXIF auto-rotation (tags 1, 3, 6, 8), automated PDF normalization for landscape/rotated pages, and native macOS PDFKit spooling for converted images—preventing driver distortions, rotation clipping, and manual paper-feed prompts.
 
 </td>
 </tr>
@@ -140,6 +140,8 @@ Customers never need to download an application, join a local Wi-Fi network, or 
 
 - **Zero App Footprint:** The mobile web app (`cloud-relay/public/`) opens in any modern smartphone browser immediately upon scanning the kiosk's dynamic QR code.
 - **Accurate Pre-flight Page Analysis:** Server-side PDF analysis using `pdf-lib` extracts exact page counts and orientation before charging, eliminating pricing surprises.
+- **Orientation Fidelity & EXIF Correction:** Detects smartphone camera EXIF rotation tags (tags 1, 3, 6, 8) and document viewports automatically, pre-normalizing landscape, portrait, and rotated images into print-ready layouts.
+- **Native OS & PDFKit Spooling:** Prints PDFs and converted images on macOS via native PDFKit (`NSPrintOperation`) and sanitized CUPS properties on Linux, bypassing driver manual-feed prompts and orientation clipping.
 - **Dynamic Per-Page Pricing:** Pricing syncs in real-time from the kiosk's local settings (B&W per-page, Color per-page, and custom shop branding).
 - **Direct UPI & Razorpay Checkout:** Integrates seamlessly with Razorpay UPI payment gateway; webhook endpoints verify transactions using HMAC-SHA256 signatures before generating print tickets.
 - **Built-in Dev Mode:** When Razorpay credentials are not configured, JetPrint automatically runs in sandbox simulation mode so you can test complete end-to-end printing flows for free.
@@ -196,7 +198,7 @@ JetPrint features a dual-mode interface designed for high-throughput public spac
 
 ### 2. Owner Mode (Password Protected)
 - **High-Throughput Print Queue:** Workflow category tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`) and real-time OTP / file search.
-- **⚡ Rush Hour Auto-Print:** Instant dispatch upon payment settlement with a 10s auto-dismissing banner notification.
+- **⚡ Rush Hour Auto-Print:** Instant dispatch upon payment settlement backed by a sequential FIFO queue, concurrency locking against duplicate spooling, and automatic pending job recovery sweep.
 - **Touch-Optimized Display:** Fluid responsive layout with a 10px high-contrast scrollbar tailored for touch POS monitors.
 - **Privacy & Security:** Completed documents are purged with reprint disabled to protect user data and prevent duplicate runs.
 - **In-App Logs & Overrides:** Direct access to live diagnostic logs, date filtering, and per-file printer redirection.

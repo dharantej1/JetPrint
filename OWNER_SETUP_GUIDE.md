@@ -19,11 +19,14 @@
 - [5. Dedicated Owner Settings Workspace](#5-dedicated-owner-settings-workspace)
 - [6. Printers & Multi-Printer Pools (Managing 10–20+ Printers)](#6-printers--multi-printer-pools-managing-1020-printers)
   - [Printer Capability Tagging & Smart Pool Routing](#printer-capability-tagging--smart-pool-routing)
+  - [Cross-Platform Print Engines & Native macOS PDFKit Spooling](#cross-platform-print-engines--native-macos-pdfkit-spooling)
+  - [Orientation Fidelity: JPEG EXIF Auto-Rotation & Landscape Normalization](#orientation-fidelity-jpeg-exif-auto-rotation--landscape-normalization)
   - [Per-Page Pricing & Paper Sizes](#per-page-pricing--paper-sizes)
   - [Window & Display: Windowed Mode and Fullscreen Toggle](#window--display-windowed-mode-and-fullscreen-toggle)
   - [Storage Folder & System Diagnostic Logs](#storage-folder--system-diagnostic-logs)
 - [7. Operating Modes: Self-Service, Owner Queue & Rush Hour Auto-Print](#7-operating-modes-self-service-owner-queue--rush-hour-auto-print)
   - [⚡ Rush Hour Auto-Print Mode (Zero-OTP Printing)](#-rush-hour-auto-print-mode-zero-otp-printing)
+  - [Rush Hour Reliability: FIFO Queue, Concurrency Lock & Recovery Sweep](#rush-hour-reliability-fifo-queue-concurrency-lock--recovery-sweep)
   - [Per-File Printer Overrides in Owner Queue](#per-file-printer-overrides-in-owner-queue)
   - [Filtering the Owner Mode Print Queue by Date](#filtering-the-owner-mode-print-queue-by-date)
 - [8. Resetting a Forgotten Password](#8-resetting-a-forgotten-password)
@@ -236,13 +239,21 @@ Under the **Printers & Pools** tab, JetPrint provides an ergonomic Master-Detail
 4. **Rescan System Printers**:
    - Click **Rescan System Printers** in the header anytime new USB or network printers are connected.
 
-### Cross-Platform Printer Identification & Alias Resolution
+### Cross-Platform Print Engines & Native macOS PDFKit Spooling
 
 JetPrint works seamlessly across macOS, Linux, and Windows print spoolers:
-- **macOS & Linux (CUPS / Bonjour)**: Automatically detects and resolves Bonjour network ghost loopback aliases (e.g. `<PrinterName> @ <Hostname>` mapped back to the canonical system queue), eliminating loopback duplicate entries and ghost printer errors.
+- **macOS Native PDFKit Engine (`NSPrintOperation`)**: On macOS (Apple Silicon M1–M4 & Intel), all PDF documents and converted image files route through Apple's native PDFKit subsystem (`macos_print_pdf` using `kPDFPrintPageScaleToFit` and `autoRotate: NO`). This completely eliminates printer driver crashes, unwanted manual paper feed prompts, and rotation distortion common to raw `lp` CUPS commands on macOS.
+- **Linux & CUPS Spooling**: Automatically detects and resolves Bonjour network ghost loopback aliases (e.g. `<PrinterName> @ <Hostname>` mapped back to the canonical system queue), eliminating loopback duplicate entries and ghost printer errors. Uses sanitized CUPS properties (`orientation-requested: 3`, auto tray selection) so printers pull reliably from the main cassette.
 - **Windows (Print Spooler)**: Directly queries Windows Spooler APIs (`winspool`) with automatic device matching.
 - **Non-Blocking Spooling**: Print jobs and test pages run in asynchronous background worker threads (`tokio::task::spawn_blocking`) with 30-second timeouts, keeping the UI completely fluid and responsive during large multi-page spools.
 - **Automatic Default Fallback**: If a targeted printer is disconnected, renamed, or temporarily unavailable, JetPrint automatically reroutes jobs to the system default printer rather than dropping customer prints.
+
+### Orientation Fidelity: JPEG EXIF Auto-Rotation & Landscape Normalization
+
+Customer documents arrive from diverse smartphone cameras, scanners, and software:
+- **JPEG EXIF Auto-Rotation**: Smartphone cameras embed EXIF metadata orientation tags (tags 1, 3, 6, 8) that often cause portrait photos or scans to appear sideways or inverted when printed. JetPrint inspects EXIF markers at pre-flight and rotates the image to its natural upright position before generating the print-ready PDF.
+- **Landscape & Mixed-Page Normalization**: In documents with landscape pages or rotated viewports, JetPrint's pre-flight pipeline pre-rotates and normalizes the pages into print-ready PDF assets (`print_ready: true`). This ensures the kiosk spooler prints them with exact aspect ratios and margins without relying on unpredictable printer driver auto-rotate algorithms.
+- **Unified PDF Detection (`is_pdf_file`)**: The kiosk print engine detects PDFs across file extensions, MIME types, `print_ready` metadata, and `%PDF` magic bytes, guaranteeing that converted images receive the same high-fidelity treatment as native vector PDFs.
 
 ### Per-File Smart Routing & Load Balancing
 
@@ -309,6 +320,16 @@ During peak hours when customer queues form:
 - **Owner Mode Guard**: Rush Hour Auto-Print is restricted exclusively to Owner Mode to ensure staff is actively attending the printer trays.
 - **Zero-Touch Printing**: Incoming customer orders print immediately upon payment settlement without manual clicks or OTP verification. Toggle it off anytime when rush hour ends.
 
+### Rush Hour Reliability: FIFO Queue, Concurrency Lock & Recovery Sweep
+
+To handle intense rush hour traffic without printer spooler collisions or lost orders, JetPrint features a robust three-tier execution system:
+1. **Sequential FIFO Print Queue**:
+   Incoming paid jobs are queued in a strict First-In, First-Out (FIFO) pipeline. Jobs are dispatched one by one in the exact chronological order payment was confirmed, preventing spooler overflow, buffer congestion, and out-of-order document output.
+2. **Strict Concurrency Lock**:
+   An atomic state guard prevents parallel print commands from firing simultaneously. While a document is actively spooling or printing, subsequent jobs wait safely in the queue. This completely eliminates driver deadlocks, duplicate page runs, and port collisions.
+3. **Automatic Pending Job Recovery Sweep**:
+   Whenever Rush Hour Auto-Print is activated (or if the kiosk starts up with Rush Hour mode enabled), JetPrint instantly sweeps the local SQLite database for any `pending` paid jobs—such as orders completed during a momentary network interruption, app restart, or while the kiosk was idle. All unprinted jobs are automatically loaded into the FIFO queue and printed immediately, ensuring zero lost orders during hectic shifts.
+
 ### Per-File Printer Overrides in Owner Queue
 
 Each file in a customer's job card displays an inline printer badge:
@@ -368,3 +389,6 @@ JetPrint features a built-in native updater powered by Rust:
 | **Forgot Owner Password** | Click **Forgot Password? Reset with 12-word Phrase** in the Owner Authentication modal and enter your recovery phrase. |
 | **Touchscreen Kiosk has no physical keyboard** | **Self-Service Mode** uses JetPrint's built-in numeric keypad on screen (customers never need an OS keyboard). In **Owner Settings** or **First-Run Setup**, tap the keyboard icon next to any input field to open the built-in touch keyboard. |
 | **Windows Touch Keyboard (TabTip) does not pop up** | If running Windows in desktop mode without tablet auto-invoke, either tap the in-app keyboard button, or enable Windows Touch Keyboard in desktop mode: run PowerShell as Admin: `Set-ItemProperty -Path "HKCU:\Software\Microsoft\TabletTip\1.7" -Name "EnableDesktopModeAutoInvoke" -Value 1`. |
+| **Mobile photo or document prints sideways or upside down** | JetPrint automatically detects and corrects JPEG EXIF orientation tags (1, 3, 6, 8) and normalizes rotated PDF viewports at upload. Ensure the customer has uploaded the original JPEG/PNG or PDF without external screenshot cropping. |
+| **Printer requests manual paper feed / bypass tray** | JetPrint routes macOS prints via native PDFKit with `kPDFPrintPageScaleToFit` and sanitizes CUPS spooler properties (`orientation-requested: 3`, auto tray selection), suppressing manual feed prompts across major printer brands. |
+| **Customer paid during temporary kiosk offline or app restart** | When the kiosk reconnects, or as soon as **Rush Hour Auto-Print** is enabled, the automatic pending job recovery sweep detects all paid `pending` orders in the database and prints them sequentially via the FIFO queue. |

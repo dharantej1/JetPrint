@@ -38,6 +38,14 @@ npm test
 | `UPLOAD_DIR` | Temporary directory for uploaded files | `./uploads` |
 | `FILE_TTL_MS` | File retention TTL in milliseconds | `3600000` (1 hour) |
 
+## Orientation Fidelity & Document Pre-Flight
+
+Cloud Relay includes an automated pre-flight analysis and document normalization pipeline:
+
+- **JPEG EXIF Auto-Rotation (`getJpegExifOrientation`)**: Parses embedded EXIF metadata tags (1, 3, 6, 8) in camera and mobile photo uploads, mapping rotations to degrees (`exifOrientationToDegrees`) and orienting images upright before PDF conversion.
+- **Client & Server-Side Aspect Ratio Detection**: Inspects PDF viewports (PDF.js in `public/app.js` and `pdf-lib` in `src/pdf.ts`) and image natural dimensions to automatically set page orientation (`portrait` vs `landscape`).
+- **PDF Normalization & Print-Ready Composing (`buildPrintReadyPdf`)**: When documents have rotated pages, landscape aspect ratios, or non-standard media boxes, Cloud Relay normalizes them into standard PDF containers tagged `print_ready: true`. Kiosk print spoolers can then output these files directly without trigger-happy printer driver auto-rotation or margin clipping.
+
 ## HTTP Endpoints
 
 - `GET /upload?machine_id=<id>` — Mobile-responsive upload & UPI payment UI
@@ -79,7 +87,17 @@ npm test
         "mime_type": "application/pdf",
         "size_bytes": 12345,
         "page_count": 3,
-        "download_url": "http://localhost:3000/api/jobs/job_.../files/file_..."
+        "download_url": "http://localhost:3000/api/jobs/job_.../files/file_...",
+        "settings": {
+          "copies": 1,
+          "color": false,
+          "duplex": "1-sided",
+          "orientation": "portrait",
+          "pages_per_sheet": 1,
+          "page_range": "all",
+          "print_ready": true,
+          "paper_size": "A4"
+        }
       }
     ],
     "created_at": "2026-11-12T07:00:00.000Z"

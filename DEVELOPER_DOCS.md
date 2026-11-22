@@ -9,6 +9,7 @@ Technical reference for the JetPrint system: Cloud Relay HTTP/WebSocket APIs, Ta
 - [1. System Architecture & Data Flow](#1-system-architecture--data-flow)
 - [2. Cloud Relay (`cloud-relay/`)](#2-cloud-relay-cloud-relay)
   - [Environment Variables](#environment-variables-cloud-relayenvexample)
+  - [Orientation Fidelity & Document Pre-Flight](#orientation-fidelity--document-pre-flight-srcpdfts--publicappjs)
   - [HTTP Endpoints](#http-endpoints-cloud-relaysrcroutesapits--appts)
   - [WebSocket Protocol](#websocket-protocol-ws-cloud-relaysrcwsts)
 - [3. Tauri v2 Rust Backend (`desktop-kiosk/src-tauri/`)](#3-tauri-v2-rust-backend-desktop-kiosksrc-tauri)
@@ -27,21 +28,21 @@ Technical reference for the JetPrint system: Cloud Relay HTTP/WebSocket APIs, Ta
 Customer Mobile Browser
   │  1. Scans QR -> GET /upload?machine_id=<id>
   │  2. Fetches pricing -> GET /api/machines/:machineId
-  │  3. Uploads PDF/Images -> POST /api/jobs (page count via pdf-lib, creates Razorpay order)
+  │  3. Uploads PDF/Images -> POST /api/jobs (EXIF auto-rotation, PDF normalization, creates Razorpay order)
   │  4. Completes UPI payment -> Razorpay sends POST /api/webhooks/razorpay
   ▼
 Cloud Relay (cloud-relay/)
   │  5. Verifies x-razorpay-signature (HMAC-SHA256), generates 6-digit OTP
-  │  6. Pushes job_dispatch over WebSocket (/ws) to target machine_id
+  │  6. Pushes job_dispatch over WebSocket (/ws) with print_ready settings to target machine_id
   ▼
 Tauri v2 Desktop Kiosk (desktop-kiosk/src-tauri/)
   │  7. ws_client.rs downloads files via GET /api/jobs/:jobId/files/:fileId (Bearer token)
   │  8. Inserts job + OTP into local SQLite (jetprint.db -> print_jobs)
   │  9. Emits Tauri event "job-received" to React UI
   ▼
-Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
-     10. Customer enters 6-digit OTP (Self-Service) or Owner clicks Print (Owner Mode)
-     11. verify_otp_and_print -> printer::print_job_files() -> OS printer
+Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
+     10. Self-Service OTP keypad OR Owner Mode Queue (with sequential FIFO queue in Rush Hour)
+     11. Dispatches to native macOS PDFKit (Apple) or sanitized CUPS / WinSpool spooler
 ```
 
 ---
@@ -61,6 +62,13 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 | `DEFAULT_COLOR_PRICE_PAISE` | Fallback Color price per page in paise | `1000` |
 | `UPLOAD_DIR` | Temporary upload directory | `./uploads` |
 | `FILE_TTL_MS` | File retention TTL in milliseconds | `3600000` |
+
+### Orientation Fidelity & Document Pre-Flight (`src/pdf.ts` & `public/app.js`)
+
+- **`getJpegExifOrientation(buffer)`**: Binary parser for JPEG APP1 markers extracting EXIF Tag `0x0112` (Orientation).
+- **`exifOrientationToDegrees(orientation)`**: Converts EXIF tags (3 -> 180°, 6 -> 270° in PDF coordinates, 8 -> 90°) to compensate for camera rotation.
+- **`checkPdfNeedsNormalization(buffer, mime, name, settings)`**: Detects whether a document contains non-standard page rotations, landscape viewports, or custom sheet sizes.
+- **`buildPrintReadyPdf(buffer, mime, name, settings)`**: Pre-rotates pages and embeds raster images into a normalized PDF document with standardized media boxes, marked with `print_ready: true`.
 
 ### HTTP Endpoints (`cloud-relay/src/routes/api.ts` & `app.ts`)
 
@@ -133,7 +141,13 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
   - `generate_recovery_phrase()`: 12-word BIP39 mnemonic (`bip39` crate).
   - `normalize_phrase()` / `validate_phrase()`: Lowercases, trims whitespace, validates 12-word BIP39.
   - `hash_secret()` / `verify_secret()`: Argon2id PHC hashing/verification (`argon2` crate).
+- **`src/macos_print.m`**: Native macOS PDFKit printing integration (`macos_print_pdf`):
+  - Bridges Objective-C Cocoa APIs to Rust `extern "C"`.
+  - Instantiates `PDFDocument` from file path and generates `NSPrintOperation`.
+  - Configures `kPDFPrintPageScaleToFit` with `autoRotate: NO` (since pages are pre-normalized), completely eliminating printer manual feed tray prompts and orientation distortions on macOS.
 - **`src/printer.rs`**:
+  - `is_pdf_file()`: Inspects file extension, MIME type, `print_ready` setting, and `%PDF` magic bytes to route converted images and documents to native PDFKit or CUPS.
+  - `build_file_print_properties()`: Assembles sanitized CUPS options (`fit-to-page`, `orientation-requested: 3`, `media-source: auto`) while preventing duplicate `landscape` tags for pre-composed print-ready documents.
   - `list_system_printers()`: Enumerates system printers via the `printers` crate, performs canonical name matching, resolves Bonjour ghost loopback aliases (`<PrinterName> @ <Host>`), and deduplicates network loopback entries.
   - `resolve_printer_with_alias_handling()`: Intelligent alias resolution matching requested printer names against canonical hardware queues or network aliases, with automatic fallback to the OS default printer.
   - `route_file_to_printer()`: Smart capability routing matching document properties (Color/BW, A4/A3/Legal) to pool queues with round-robin load balancing and fallback cascade.
@@ -185,10 +199,15 @@ Kiosk UI & Printer (desktop-kiosk/src/ + printer.rs)
 
 - **`src/api/tauri.ts`**: Typed wrappers around all Tauri commands (including printer pooling and direct print), event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
 - **`src/types.ts`**: TypeScript interfaces matching `src-tauri/src/models.rs` (`camelCase`), including `ConfiguredPrinter`, `PrinterPoolType`, and `PrinterPoolConfig`.
-- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), handles Rush Hour Auto-Print on incoming jobs, and renders:
+- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), and coordinates the **Rush Hour Auto-Print Engine**:
+  - `printQueueRef`: Sequential First-In, First-Out (FIFO) queue for auto-print jobs.
+  - `isProcessingQueueRef`: Concurrency lock ensuring single-threaded spooler dispatch to prevent driver collisions.
+  - `enqueueJobForPrint()`: Enqueues incoming paid jobs and triggers sequential execution.
+  - **Pending Job Recovery Sweep**: Sweeps SQLite on Rush Hour toggle and initial state load for `pending` jobs, recovering unprinted jobs after offline or idle periods.
+  - Renders:
   - `QrPanel.tsx`: QR code for `<relayUrl>/upload?machine_id=<machineId>` and pricing.
   - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode).
-  - `OwnerModeQueue.tsx`: High-throughput queue with 4 workflow tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time search filtering (`Quick search OTP or file...`), 10px touch-friendly scrollbar, fluid responsive grid, 10s auto-dismissing banner notice, and removed reprint button for purged documents.
+  - `OwnerModeQueue.tsx`: High-throughput queue with 4 workflow tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time search filtering (`Quick search OTP or file...`), 10px touch-friendly scrollbar, fluid responsive grid, 10s auto-dismissing banner notice, per-file printer overrides (`printerOverrides`), and removed reprint button for purged documents.
   - `FirstRunWizard.tsx`: First-run password creation & BIP39 phrase confirmation.
   - `OwnerUnlockModal.tsx`: Keypad PIN/Password authentication dialog before entering settings.
   - `DedicatedSettingsPage.tsx`: Full-page settings workspace with Master-Detail printer & pool assignments, interactive pool filter tabs, per-page pricing, mode selection, relay status, and system controls.
