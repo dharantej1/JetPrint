@@ -139,6 +139,60 @@ pub fn route_file_to_printer(
     enabled.first().map(|p| p.name.clone())
 }
 
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn macos_print_pdf(
+        printer_name: *const std::os::raw::c_char,
+        pdf_path: *const std::os::raw::c_char,
+        copies: i32,
+        is_duplex: i32,
+        is_landscape: i32,
+        paper_size: *const std::os::raw::c_char,
+    ) -> i32;
+}
+
+#[cfg(target_os = "macos")]
+pub fn try_macos_native_print(
+    printer_name: &str,
+    pdf_path: &str,
+    copies: u32,
+    is_duplex: bool,
+    is_landscape: bool,
+    paper_size: Option<&str>,
+) -> bool {
+    use std::ffi::CString;
+
+    let c_printer = match CString::new(printer_name) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let c_path = match CString::new(pdf_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let c_paper = paper_size.and_then(|s| CString::new(s).ok());
+    let paper_ptr = c_paper.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+
+    let res = unsafe {
+        macos_print_pdf(
+            c_printer.as_ptr(),
+            c_path.as_ptr(),
+            copies as i32,
+            if is_duplex { 1 } else { 0 },
+            if is_landscape { 1 } else { 0 },
+            paper_ptr,
+        )
+    };
+
+    if res == 0 {
+        eprintln!("[JetPrint Printer] Printed '{pdf_path}' via native macOS PDFKit to '{printer_name}'");
+        true
+    } else {
+        eprintln!("[JetPrint Printer] Native macOS print returned code {res}; falling back to spooler");
+        false
+    }
+}
+
 /// Helper to resolve a system printer, gracefully avoiding Bonjour loopback aliases
 /// (e.g. "PrinterName @ Host" when "PrinterName" is locally present).
 pub fn resolve_printer_with_alias_handling(name: &str) -> Option<printers::common::base::printer::Printer> {
@@ -236,38 +290,67 @@ pub fn print_job_files_pooled(
             ..PrinterJobOptions::none()
         };
 
-        let print_res = printer.print_file(&file.local_path, options.clone());
-        let actual_target_name = match print_res {
-            Ok(_) => target_name,
-            Err(e) => {
-                eprintln!(
-                    "[JetPrint Printer] Failed to print '{}' to '{}': {e:?}",
-                    file.filename, target_name
-                );
-                // Attempt fallback to default printer if target_name is not already the fallback
-                let fallback_printer = default_printer
-                    .and_then(resolve_printer_with_alias_handling)
-                    .or_else(get_default_printer)
-                    .filter(|p| p.name != target_name);
+        #[cfg(target_os = "macos")]
+        let mac_printed = if file.filename.to_lowercase().ends_with(".pdf") {
+            let is_duplex = file.settings.as_ref().map(|s| s.duplex.as_str()) == Some("2-sided");
+            let is_landscape = file
+                .settings
+                .as_ref()
+                .map(|s| s.orientation.eq_ignore_ascii_case("landscape"))
+                .unwrap_or(false);
+            let paper_size = file.settings.as_ref().and_then(|s| s.paper_size.as_deref());
+            let file_copies = file.settings.as_ref().map(|s| s.copies).unwrap_or(copies);
+            try_macos_native_print(
+                &target_name,
+                &file.local_path,
+                file_copies,
+                is_duplex,
+                is_landscape,
+                paper_size,
+            )
+        } else {
+            false
+        };
 
-                if let Some(fallback) = fallback_printer {
-                    let fb_name = fallback.name.clone();
+        #[cfg(not(target_os = "macos"))]
+        let mac_printed = false;
+
+        let actual_target_name = if mac_printed {
+            target_name
+        } else {
+            let print_res = printer.print_file(&file.local_path, options.clone());
+            match print_res {
+                Ok(_) => target_name,
+                Err(e) => {
                     eprintln!(
-                        "[JetPrint Printer] Retrying print of '{}' with fallback printer '{}'...",
-                        file.filename, fb_name
-                    );
-                    fallback.print_file(&file.local_path, options).map_err(|fb_err| {
-                        format!(
-                            "Failed to print '{}' to '{}' ({e:?}); fallback to '{}' also failed: {fb_err:?}",
-                            file.filename, target_name, fb_name
-                        )
-                    })?;
-                    fb_name
-                } else {
-                    return Err(format!(
-                        "Failed to print '{}' to '{}': {e:?}",
+                        "[JetPrint Printer] Failed to print '{}' to '{}': {e:?}",
                         file.filename, target_name
-                    ));
+                    );
+                    // Attempt fallback to default printer if target_name is not already the fallback
+                    let fallback_printer = default_printer
+                        .and_then(resolve_printer_with_alias_handling)
+                        .or_else(get_default_printer)
+                        .filter(|p| p.name != target_name);
+
+                    if let Some(fallback) = fallback_printer {
+                        let fb_name = fallback.name.clone();
+                        eprintln!(
+                            "[JetPrint Printer] Retrying print of '{}' with fallback printer '{}'...",
+                            file.filename, fb_name
+                        );
+                        fallback.print_file(&file.local_path, options).map_err(|fb_err| {
+                            format!(
+                                "Failed to print '{}' to '{}' ({e:?}); fallback to '{}' also failed: {fb_err:?}",
+                                file.filename, target_name, fb_name
+                            )
+                        })?;
+                        fb_name
+                    } else {
+                        return Err(format!(
+                            "Failed to print '{}' to '{}': {e:?}",
+                            file.filename, target_name
+                        ));
+                    }
                 }
             }
         };
@@ -401,6 +484,10 @@ pub fn build_file_print_properties(
         ("job-sheets", "none,none".to_string()),
         ("media", chosen_paper_size.to_string()),
         ("PageSize", chosen_paper_size.to_string()),
+        ("InputSlot", "Auto".to_string()),
+        ("ManualFeed", "False".to_string()),
+        ("manual-feed", "false".to_string()),
+        ("media-source", "auto".to_string()),
     ];
 
     if is_landscape {
@@ -460,9 +547,36 @@ pub fn print_job_files(
             ..PrinterJobOptions::none()
         };
 
-        printer
-            .print_file(&file.local_path, options)
-            .map_err(|e| format!("Failed to print '{}': {e:?}", file.filename))?;
+        #[cfg(target_os = "macos")]
+        let mac_printed = if file.filename.to_lowercase().ends_with(".pdf") {
+            let is_duplex = file.settings.as_ref().map(|s| s.duplex.as_str()) == Some("2-sided");
+            let is_landscape = file
+                .settings
+                .as_ref()
+                .map(|s| s.orientation.eq_ignore_ascii_case("landscape"))
+                .unwrap_or(false);
+            let paper_size = file.settings.as_ref().and_then(|s| s.paper_size.as_deref());
+            let file_copies = file.settings.as_ref().map(|s| s.copies).unwrap_or(copies);
+            try_macos_native_print(
+                &printer.name,
+                &file.local_path,
+                file_copies,
+                is_duplex,
+                is_landscape,
+                paper_size,
+            )
+        } else {
+            false
+        };
+
+        #[cfg(not(target_os = "macos"))]
+        let mac_printed = false;
+
+        if !mac_printed {
+            printer
+                .print_file(&file.local_path, options)
+                .map_err(|e| format!("Failed to print '{}': {e:?}", file.filename))?;
+        }
     }
 
     Ok(())
@@ -505,6 +619,8 @@ mod tests {
         assert!(props.contains(&("print-scaling", "fit".to_string())));
         assert!(props.contains(&("media", "A3".to_string())));
         assert!(props.contains(&("PageSize", "A3".to_string())));
+        assert!(props.contains(&("InputSlot", "Auto".to_string())));
+        assert!(props.contains(&("ManualFeed", "False".to_string())));
         assert!(props.contains(&("number-up", "4".to_string())));
         assert!(props.contains(&("page-ranges", "1-4,6".to_string())));
 

@@ -1770,6 +1770,7 @@ version = "0.1.21"
 dependencies = [
  "argon2",
  "bip39",
+ "cc",
  "chrono",
  "dirs 5.0.1",
  "futures-util",
