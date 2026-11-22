@@ -33,16 +33,17 @@ Customer Mobile Browser
   ▼
 Cloud Relay (cloud-relay/)
   │  5. Verifies x-razorpay-signature (HMAC-SHA256), generates 6-digit OTP
-  │  6. Pushes job_dispatch over WebSocket (/ws) with print_ready settings to target machine_id
+  │  6. Dispatches job over WebSocket (/ws); if kiosk is offline, job stays queued as unacknowledged
   ▼
 Tauri v2 Desktop Kiosk (desktop-kiosk/src-tauri/)
-  │  7. ws_client.rs downloads files via GET /api/jobs/:jobId/files/:fileId (Bearer token)
-  │  8. Inserts job + OTP into local SQLite (jetprint.db -> print_jobs)
-  │  9. Emits Tauri event "job-received" to React UI
+  │  7. ws_client.rs receives job_dispatch (or flushes unacknowledged jobs on connect/reconnect)
+  │  8. Downloads files via GET /api/jobs/:jobId/files/:fileId with 3-attempt progressive backoff
+  │  9. Inserts job + OTP into local SQLite (jetprint.db -> print_jobs), emits "job-received", and sends job_ack
+  │  10. Background sync: polls GET /api/machines/:machineId/active-jobs on connect and queue refresh
   ▼
 Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
-     10. Self-Service OTP keypad OR Owner Mode Queue (with sequential FIFO queue in Rush Hour)
-     11. Dispatches to native macOS PDFKit (Apple) or sanitized CUPS / WinSpool spooler
+     11. Self-Service OTP keypad (with on-demand GET /api/jobs/by-otp/:otp fallback) OR Owner Mode Queue
+     12. Dispatches to native macOS PDFKit (Apple) or sanitized CUPS / WinSpool spooler
 ```
 
 ---
@@ -76,7 +77,9 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 |---|---|
 | `GET /upload?machine_id=<id>` | Serves the mobile upload & UPI checkout web app (`cloud-relay/public/`). |
 | `GET /api/health` | Health check and current payment mode (`devMode`). |
-| `GET /api/machines/:machineId` | Returns kiosk online status and synced pricing (`bwPerPagePaise`, `colorPerPagePaise`, `shopName`). |
+| `GET /api/machines/:machineId` | Returns kiosk online status and synced pricing (`bwPerPagePaise`, `colorPerPagePaise`, `shopName`, `supportedPaperSizes`). |
+| `GET /api/machines/:machineId/active-jobs` | Returns active unprinted jobs for kiosk synchronization. Requires `Authorization: Bearer <auth_token>` (or `?token=<auth_token>`). |
+| `GET /api/jobs/by-otp/:otp` | On-demand OTP lookup fallback returning full job payload and file download URLs. Requires kiosk `Authorization: Bearer <auth_token>` matching the target machine. |
 | `POST /api/jobs` | Accepts multipart `files`, `machine_id`, `copies`, `color` (plus `per_file_settings`); detects PDF page counts; calculates amount in paise; creates Razorpay order (or dev order). |
 | `GET /api/jobs/:jobId/status` | Polls job payment/print status; returns 6-digit `otp` once paid. |
 | `GET /api/jobs/:jobId/files/:fileId` | Downloads an uploaded file. Requires `Authorization: Bearer <auth_token>` (or `?token=<auth_token>`). |
@@ -85,16 +88,42 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 
 ### WebSocket Protocol (`/ws`, `cloud-relay/src/ws.ts`)
 
-**Kiosk → Relay:**
-- `register`: `{ "type": "register", "machine_id"?: string, "pricing": { "bwPerPagePaise", "colorPerPagePaise", "shopName"? } }`
-- `auth`: `{ "type": "auth", "machine_id": string, "auth_token"?: string, "pricing": { "bwPerPagePaise", "colorPerPagePaise" } }`
+#### Machine Identity & Re-Registration Protocol
+
+When a kiosk connects to `/ws`, it establishes its identity using either a registration or authentication handshake:
+
+- **Registration (`type: 'register'`)**:
+  Sent when the kiosk lacks an active authentication token (e.g., initial startup, factory reset, or after `reset_machine_identity`).
+  - **Deterministic `preferredMachineId` Preservation**: If the kiosk transmits a `machine_id` (the client's hardware/persisted identity), the relay honors and preserves it rather than assigning a random machine ID.
+  - The relay generates a new `authToken`, stores the pricing and paper size capabilities, marks the machine online, responds with `registered`, and immediately initiates an unacknowledged job flush.
+- **Authentication (`type: 'auth'`)**:
+  Sent during standard reconnects when the kiosk has a persisted `auth_token`.
+  - The relay verifies the token against its registry. If valid, it responds with `auth_ok` and flushes any pending unacknowledged jobs.
+  - If a kiosk reconnects with a blank or invalid token, the relay re-issues credentials under the preferred machine ID without dropping kiosk identity.
+- **Clearing Stale Auth Errors**:
+  During reconnection attempts (in `RelayHandle::request_reconnect` and `set_status`), any previously recorded auth errors (`guard.2`) are explicitly cleared (`None`), ensuring UI badges immediately reflect the active retry state rather than remaining stuck on stale error notices.
+
+#### Offline Job Delivery & Acknowledgement Lifecycle
+
+To guarantee that jobs paid while the desktop app is closed, suspended, or offline are never lost:
+
+1. **Unacknowledged Job Flush on Connect/Reconnect**:
+   When customer payment is confirmed via Razorpay webhook or dev pay while a kiosk is offline, the relay generates the 6-digit OTP and holds the job in memory. When the kiosk connects (via either `register` or `auth`), the relay immediately invokes `flushPendingJobs(machineId)`. This queries `getUnacknowledgedPaidJobs(machineId)` to retrieve all paid/dispatched jobs that have not yet been acknowledged (`job.acknowledged !== true`), dispatching them in chronological order.
+2. **Kiosk Delivery Acknowledgement (`job_ack`)**:
+   Once the desktop kiosk successfully downloads all job files to local disk and commits the job record to SQLite, it transmits a `job_ack` message over the WebSocket: `{ "type": "job_ack", "job_id": "..." }`.
+3. **Relay Acknowledgement State**:
+   Upon receiving `job_ack` (or a terminal `job_status_update` of `printing`, `printed`, `failed`, or `cancelled`), the relay marks the job as acknowledged (`job.acknowledged = true`, `job.acknowledgedAt = Date.now()`), removing it from subsequent reconnection flushes.
+
+**Kiosk → Relay Messages:**
+- `register`: `{ "type": "register", "machine_id"?: string, "pricing": { "bwPerPagePaise", "colorPerPagePaise", "shopName"? }, "supportedPaperSizes"?: string[] }`
+- `auth`: `{ "type": "auth", "machine_id": string, "auth_token"?: string, "pricing": { "bwPerPagePaise", "colorPerPagePaise" }, "supportedPaperSizes"?: string[] }`
 - `pricing_update`: `{ "type": "pricing_update", "bwPerPagePaise": number, "colorPerPagePaise": number, "shopName"?: string }`
 - `job_ack`: `{ "type": "job_ack", "job_id": string }`
-- `job_status_update`: `{ "type": "job_status_update", "job_id": string, "status": "printing" | "printed" | "failed", "error"?: string }`
+- `job_status_update`: `{ "type": "job_status_update", "job_id": string, "status": "printing" | "printed" | "failed" | "cancelled", "error"?: string }`
 - `ping`: `{ "type": "ping" }`
 
-**Relay → Kiosk:**
-- `registered` / `auth_ok`: `{ "type": "registered" | "auth_ok", "machine_id": string, "auth_token": string, "pricing": { ... } }`
+**Relay → Kiosk Messages:**
+- `registered` / `auth_ok`: `{ "type": "registered" | "auth_ok", "machine_id": string, "auth_token": string, "pricing": { ... }, "supportedPaperSizes": [...] }`
 - `pricing_ack`: `{ "type": "pricing_ack", "pricing": { ... } }`
 - `job_dispatch`:
   ```json
@@ -126,7 +155,7 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 
 ### Modules
 
-- **`src/lib.rs`**: Initializes `tauri_plugin_updater`, `tauri_plugin_process`, and `tauri_plugin_dialog`. Sets up `SharedStorage` defaulting to `~/Documents/JetPrint KIOSK` (with auto-migration from legacy app data), background 48-hour expired job cleanup task, manages `AppState`, spawns `ws_client::spawn_relay_loop`, and registers all 23 Tauri commands.
+- **`src/lib.rs`**: Initializes `tauri_plugin_updater`, `tauri_plugin_process`, and `tauri_plugin_dialog`. Sets up `SharedStorage` defaulting to `~/Documents/JetPrint KIOSK` (with auto-migration from legacy app data), background 48-hour expired job cleanup task, manages `AppState`, spawns `ws_client::spawn_relay_loop`, and registers all 24 Tauri commands.
 - **`src/storage.rs`**: Dedicated kiosk storage and file lifecycle management:
   - Default directory `~/Documents/JetPrint KIOSK` (or OS Documents directory) housing `jetprint.db`, downloaded print files in `jobs/`, and rolling diagnostics in `logs/jetprint.log`.
   - Automatic migration from legacy system app data directories on upgrade.
@@ -155,7 +184,14 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
   - `print_test_page()`: Sends an aligned diagnostic test page to any selected printer.
 - **`src/ws_client.rs`**:
   - `build_ws_url()`: Converts `http(s)://` to `ws(s)://.../ws`.
-  - `spawn_relay_loop()`: Connects via `tokio-tungstenite`, sends `auth` (persisting returned `auth_token`), downloads `job_dispatch` files via `reqwest` (Bearer auth) into `storage.jobs_dir()`, inserts job into SQLite, sends `job_ack`, emits `job-received` and `relay-status`.
+  - `spawn_relay_loop()`: Connects via `tokio-tungstenite`. Inspects `auth_token`: sends `Auth` if token exists, or `Register` with client-persisted `machine_id` (`preferredMachineId`) if token is absent.
+  - **Clearing Stale Auth Errors**: Clears previously captured connection error states on every reconnect attempt (`guard.2 = None`).
+  - **Download Retry Backoff (`download_and_save_job`)**: Downloads each file via `reqwest` with Bearer auth, using up to 3 attempts with progressive linear backoff (500ms * attempt delay).
+  - **Job Acknowledgement**: Sends `job_ack` over WebSocket upon successful local persistence, emits `job-received` to the UI, and updates `relay-status`.
+  - **Active Jobs Background Sync (`sync_active_jobs`)**: Spawns automatically upon authentication to reconcile and download unprinted orders from `GET /api/machines/:machineId/active-jobs`.
+- **`src/commands.rs`**: Implements all Tauri IPC invocations:
+  - `verify_otp_and_print`: Validates OTP against local SQLite; if not found locally, falls back to querying Cloud Relay (`GET /api/jobs/by-otp/:otp`), downloads files with retry backoff, saves the job, returns `job_ack`, and proceeds with printing.
+  - `sync_active_jobs`: Reconciles active unprinted jobs from Cloud Relay into local SQLite.
 
 ### Tauri Commands (`src/commands.rs`) & Events
 
@@ -166,7 +202,7 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 | `verify_owner_password` | Auth | `password: string` | `boolean` | Verifies Argon2id password hash for Owner Settings. |
 | `reset_password_with_phrase` | Auth | `phrase: string, newPassword: string` | `void` | Validates BIP39 recovery phrase and updates owner password. |
 | `update_settings` | Settings | `settings: UpdateSettingsInput` | `KioskState` | Updates printer, pricing, kiosk mode, and reconnects relay. |
-| `reset_machine_identity` | Settings | — | `KioskState` | Clears auth token and re-evaluates host machine identity for relay re-registration. |
+| `reset_machine_identity` | Settings | — | `KioskState` | Clears auth token while preserving machine identity for relay re-registration. |
 | `keep_existing_data` | Storage | — | `KioskState` | Dismisses existing data prompt and continues with saved DB. |
 | `reset_installation_data` | Storage | — | `KioskState` | Deletes local database, clears credentials, and re-triggers setup. |
 | `pick_storage_folder` | Storage | — | `string \| null` | Native OS folder picker to choose custom storage directory. |
@@ -178,8 +214,9 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 | `get_configured_printers` | Printer | — | `ConfiguredPrinter[]` | Loads configured printers, pool assignments, and capability tags. |
 | `save_configured_printers` | Printer | `printers: ConfiguredPrinter[]` | `void` | Persists printer pool configurations, nicknames, and active flags. |
 | `test_print` | Printer | `printerName: string` | `void` | Async command (`spawn_blocking`, 30s timeout) to print an alignment test page on target printer. |
-| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Async command (`spawn_blocking`, 30s timeout) validating OTP and dispatching job files. |
+| `verify_otp_and_print` | Print | `otp: string` | `PrintResult` | Async command validating OTP (local DB + on-demand Cloud Relay fallback with download retry backoff) and dispatching job files. |
 | `print_job_direct` | Print | `jobId: string, printerOverrides?: Record<string, string>` | `PrintResult` | Async direct print (`spawn_blocking`, 30s timeout) without OTP (used in Owner Queue & Rush Hour). |
+| `sync_active_jobs` | Sync | — | `number` | Synchronizes active unprinted jobs from Cloud Relay (`GET /api/machines/:machineId/active-jobs`) into local SQLite. |
 | `list_jobs` | Print | `limit?: number, date?: string` | `PrintJob[]` | Queries job history from local SQLite database. |
 | `cancel_job` | Print | `jobId: string` | `void` | Marks pending job as failed/cancelled. |
 | `connect_relay` | Relay | `relayUrl?: string` | `KioskState` | Updates relay address and forces WebSocket reconnection. |
@@ -197,17 +234,17 @@ Kiosk UI & Print Engines (desktop-kiosk/src/ + printer.rs + macos_print.m)
 
 ## 4. React / TypeScript Frontend (`desktop-kiosk/src/`)
 
-- **`src/api/tauri.ts`**: Typed wrappers around all Tauri commands (including printer pooling and direct print), event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
+- **`src/api/tauri.ts`**: Typed wrappers around all Tauri commands (including printer pooling, direct print, and `syncActiveJobs`), event listeners (`listenKioskEvents`), window controls (`toggleFullscreen`, `setFullscreen`), and update helpers (`checkForAppUpdate`, `installUpdateAndRelaunch`).
 - **`src/types.ts`**: TypeScript interfaces matching `src-tauri/src/models.rs` (`camelCase`), including `ConfiguredPrinter`, `PrinterPoolType`, and `PrinterPoolConfig`.
-- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), and coordinates the **Rush Hour Auto-Print Engine**:
+- **`src/App.tsx`**: Loads `KioskState`, runs silent background update check on mount, listens for `job-received` and `relay-status`, handles `Ctrl+Shift+S` / `Cmd+Shift+S` and 5-tap corner trigger, handles `F11` (toggle fullscreen) and `Escape` (exit fullscreen), triggers `syncActiveJobs()` on reconnect or state refresh when in Owner Mode, and coordinates the **Rush Hour Auto-Print Engine**:
   - `printQueueRef`: Sequential First-In, First-Out (FIFO) queue for auto-print jobs.
   - `isProcessingQueueRef`: Concurrency lock ensuring single-threaded spooler dispatch to prevent driver collisions.
   - `enqueueJobForPrint()`: Enqueues incoming paid jobs and triggers sequential execution.
   - **Pending Job Recovery Sweep**: Sweeps SQLite on Rush Hour toggle and initial state load for `pending` jobs, recovering unprinted jobs after offline or idle periods.
   - Renders:
   - `QrPanel.tsx`: QR code for `<relayUrl>/upload?machine_id=<machineId>` and pricing.
-  - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode).
-  - `OwnerModeQueue.tsx`: High-throughput queue with 4 workflow tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time search filtering (`Quick search OTP or file...`), 10px touch-friendly scrollbar, fluid responsive grid, 10s auto-dismissing banner notice, per-file printer overrides (`printerOverrides`), and removed reprint button for purged documents.
+  - `OtpKeypad.tsx`: 6-digit touch/keyboard keypad (Self-Service mode) with on-demand cloud relay lookup fallback.
+  - `OwnerModeQueue.tsx`: High-throughput queue with 4 workflow tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time search filtering (`Quick search OTP or file...`), 10px touch-friendly scrollbar, fluid responsive grid, 10s auto-dismissing banner notice, per-file printer overrides (`printerOverrides`), Refresh button with spin indicator that triggers `syncActiveJobs()`, and removed reprint button for purged documents.
   - `FirstRunWizard.tsx`: First-run password creation & BIP39 phrase confirmation.
   - `OwnerUnlockModal.tsx`: Keypad PIN/Password authentication dialog before entering settings.
   - `DedicatedSettingsPage.tsx`: Full-page settings workspace with Master-Detail printer & pool assignments, interactive pool filter tabs, per-page pricing, mode selection, relay status, and system controls.

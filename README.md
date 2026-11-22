@@ -69,7 +69,7 @@ Customers point their phone camera at the on-screen QR code, upload documents di
 <td width="33%" valign="top">
 
 ### Appliance-Grade Resilient
-Written in pure Rust on Tauri v2 with local SQLite, native CUPS and Windows spooler integration, and automated WebSocket reconnect loops. Runs 24/7 on hardware ranging from high-end PCs to a \$35 Raspberry Pi 4/5 with unattended boot-to-kiosk support.
+Written in pure Rust on Tauri v2 with local SQLite, native CUPS and Windows spooler integration, and automated WebSocket reconnect loops. Runs 24/7 on hardware ranging from high-end PCs to a \$35 Raspberry Pi 4/5 with unattended boot-to-kiosk support. Guarantees zero lost orders through unacknowledged offline job flushes, reconnect active-job sync, and on-demand cloud OTP fallbacks.
 
 </td>
 <td width="33%" valign="top">
@@ -119,12 +119,12 @@ JetPrint bridges the physical printer, the kiosk screen, and the customer's phon
   │   Cloud Relay Server    │
   └───────────┬─────────────┘
               │  4. Verifies HMAC-SHA256 signature, generates 6-digit OTP
-              │  5. Dispatches job over secure WebSocket (/ws)
+              │  5. Dispatches job over WebSocket (/ws); if kiosk is offline, holds unacknowledged jobs
               ▼
   ┌─────────────────────────┐
-  │ Tauri v2 Desktop Kiosk  │  ◄── Downloads files to ~/Documents/JetPrint KIOSK/
-  └───────────┬─────────────┘  ◄── Inserts job + OTP into local SQLite (jetprint.db)
-              │
+  │ Tauri v2 Desktop Kiosk  │  ◄── Downloads files to ~/Documents/JetPrint KIOSK/ (with retry backoff)
+  └───────────┬─────────────┘  ◄── Inserts job + OTP into local SQLite (jetprint.db) & sends job_ack
+              │                ◄── Syncs active jobs on reconnect & falls back to cloud OTP lookup
               │  6. Customer types OTP on touch keypad (or Owner prints from queue)
               ▼
   ┌─────────────────────────┐
@@ -190,14 +190,14 @@ JetPrint features a dual-mode interface designed for high-throughput public spac
 
 ### 1. Self-Service Mode
 - **High-Contrast QR Display:** Shows the real-time Cloud Relay connection state and machine ID.
-- **Touch-Friendly Keypad:** Large numeric keypad designed for responsive touchscreens and all-in-one POS displays.
+- **Touch-Friendly Keypad with Cloud Fallback:** Large numeric keypad designed for responsive touchscreens; automatically queries Cloud Relay if an entered OTP is not found locally.
 - **Audio & Visual Feedback:** Clear error messaging for expired or invalid OTP codes, with instant printing status spinners.
 
 </td>
 <td width="50%">
 
 ### 2. Owner Mode (Password Protected)
-- **High-Throughput Print Queue:** Workflow category tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`) and real-time OTP / file search.
+- **High-Throughput Print Queue:** Workflow category tabs (`Action Needed`, `Completed`, `Printed`, `All Jobs`), real-time OTP / file search, and instant queue sync with Cloud Relay (`syncActiveJobs`).
 - **⚡ Rush Hour Auto-Print:** Instant dispatch upon payment settlement backed by a sequential FIFO queue, concurrency locking against duplicate spooling, and automatic pending job recovery sweep.
 - **Touch-Optimized Display:** Fluid responsive layout with a 10px high-contrast scrollbar tailored for touch POS monitors.
 - **Privacy & Security:** Completed documents are purged with reprint disabled to protect user data and prevent duplicate runs.
@@ -284,9 +284,9 @@ JetPrint is organized as a modular repository separating the cloud relay facade 
 
 | Component | Path | Tech Stack | Responsibility |
 |---|---|---|---|
-| **Cloud Relay** | [`cloud-relay/`](cloud-relay/) | Node.js, Express, `ws`, `pdf-lib`, Razorpay | Serves mobile upload UI, counts PDF pages, manages UPI orders, verifies webhooks, pushes OTPs over WebSocket. |
-| **Kiosk Core (Rust)** | [`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/) | Tauri v2, `rusqlite`, `printers`, `argon2`, `bip39`, `tokio` | Native OS printer spooling (CUPS & WinSpool), SQLite storage, WebSocket client, 48h file cleanup, and Minisign updater. |
-| **Kiosk UI (React)** | [`desktop-kiosk/src/`](desktop-kiosk/src/) | React 18, TypeScript, Vite, Lucide | Self-Service touch keypad, QR display, Owner Mode print queue, Rush Hour Auto-Print, and Dedicated Settings Workspace. |
+| **Cloud Relay** | [`cloud-relay/`](cloud-relay/) | Node.js, Express, `ws`, `pdf-lib`, Razorpay | Serves mobile upload UI, counts PDF pages, manages UPI orders, verifies webhooks, pushes OTPs over WebSocket, flushes unacknowledged offline jobs, and serves active-jobs / OTP fallback endpoints. |
+| **Kiosk Core (Rust)** | [`desktop-kiosk/src-tauri/`](desktop-kiosk/src-tauri/) | Tauri v2, `rusqlite`, `printers`, `argon2`, `bip39`, `tokio` | Native OS printer spooling (CUPS & WinSpool), SQLite storage, WebSocket client with re-registration & `job_ack`, 3-attempt download retry backoff, on-demand OTP fallback, active jobs sync, 48h cleanup, and Minisign updater. |
+| **Kiosk UI (React)** | [`desktop-kiosk/src/`](desktop-kiosk/src/) | React 18, TypeScript, Vite, Lucide | Self-Service touch keypad, QR display, Owner Mode print queue with cloud job sync, Rush Hour Auto-Print, and Dedicated Settings Workspace. |
 | **Release Pipeline** | [`.github/workflows/`](.github/workflows/) | GitHub Actions, Tauri Action, Minisign | Multi-platform build matrix, artifact signing, and unified `latest.json` updater manifest consolidation. |
 
 ---

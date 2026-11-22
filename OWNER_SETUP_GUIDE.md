@@ -188,8 +188,11 @@ The **status pill** in the top-right header shows your Cloud Relay connection at
 | Status Pill | Indicator | Meaning & Action |
 |---|---|---|
 | **`Relay Online`** | Green dot | Connected. Pricing is synced and jobs will arrive automatically. |
-| **`Connecting...`** | Amber dot | Connecting or reconnecting. Wait a few seconds; if it persists, check your internet or Cloud Relay URL. |
+| **`Connecting...`** | Amber dot | Connecting or reconnecting. Stale error notices are cleared automatically while reconnecting. Wait a few seconds; if it persists, check your internet or Cloud Relay URL. |
 | **`Relay Offline`** | Red dot | Disconnected. Check your internet, verify **Cloud Relay URL** in Owner Settings, and click **Save Settings** to reconnect. |
+
+> **Machine Identity & Re-Registration Protocol**:
+> Your kiosk maintains a permanent, unique **Machine ID** (e.g. `kiosk_a1b2c3d4`). When reconnecting or after resetting settings, JetPrint automatically performs a deterministic re-registration with Cloud Relay, preserving your Machine ID and clearing out any stale authentication errors without requiring you to regenerate your customer QR codes or reconfigure the shop.
 
 ---
 
@@ -290,6 +293,7 @@ In **Settings → Operating Mode**, choose your shop mode and click **Save Chang
 - **Self-Service Mode** *(recommended for unattended kiosks)*:
   - Displays the customer QR code and 6-digit OTP keypad.
   - Customers upload, pay on their phone, receive an OTP, and release their prints at the kiosk.
+  - **On-Demand Cloud OTP Fallback**: If a customer pays while the kiosk is starting up or temporarily disconnected, entering their 6-digit code on the keypad triggers an instant on-demand query to Cloud Relay. The kiosk downloads the files with automatic retry backoff, acknowledges receipt, and prints immediately—no manual staff intervention required.
 - **Owner Mode** *(recommended when staff operate the print counters)*:
   - Displays the QR code alongside a high-throughput **Owner Mode Print Queue**.
   - Paid jobs appear in real time with file details, copies, and assigned printers.
@@ -343,7 +347,7 @@ The Print Queue header includes date navigation:
 - **Today** *(default)*: Shows only today's jobs.
 - **All**: Shows all saved jobs with timestamps.
 - **Date Picker**: Select any past date to view jobs from that day.
-- The counter on the right shows matching job count; **Refresh** reloads the queue.
+- The counter on the right shows matching job count; clicking **Refresh** spins and triggers active synchronization (`sync_active_jobs`), fetching any unprinted orders paid while the app was closed directly from Cloud Relay into your queue.
 
 ---
 
@@ -391,4 +395,4 @@ JetPrint features a built-in native updater powered by Rust:
 | **Windows Touch Keyboard (TabTip) does not pop up** | If running Windows in desktop mode without tablet auto-invoke, either tap the in-app keyboard button, or enable Windows Touch Keyboard in desktop mode: run PowerShell as Admin: `Set-ItemProperty -Path "HKCU:\Software\Microsoft\TabletTip\1.7" -Name "EnableDesktopModeAutoInvoke" -Value 1`. |
 | **Mobile photo or document prints sideways or upside down** | JetPrint automatically detects and corrects JPEG EXIF orientation tags (1, 3, 6, 8) and normalizes rotated PDF viewports at upload. Ensure the customer has uploaded the original JPEG/PNG or PDF without external screenshot cropping. |
 | **Printer requests manual paper feed / bypass tray** | JetPrint routes macOS prints via native PDFKit with `kPDFPrintPageScaleToFit` and sanitizes CUPS spooler properties (`orientation-requested: 3`, auto tray selection), suppressing manual feed prompts across major printer brands. |
-| **Customer paid during temporary kiosk offline or app restart** | When the kiosk reconnects, or as soon as **Rush Hour Auto-Print** is enabled, the automatic pending job recovery sweep detects all paid `pending` orders in the database and prints them sequentially via the FIFO queue. |
+| **Customer paid during temporary kiosk offline or app restart** | JetPrint guarantees zero lost orders via four layers of protection: (1) **WebSocket Flush**: Upon reconnecting, Cloud Relay automatically flushes all unacknowledged jobs paid while the desktop app was closed; (2) **Active Jobs Sync**: The kiosk automatically syncs with Cloud Relay on reconnect (and whenever clicking **Refresh** in Owner Mode); (3) **On-Demand OTP Fallback**: If a customer enters an OTP at the keypad not yet saved locally, the kiosk fetches the job from Cloud Relay on demand with download retry backoff; (4) **Rush Hour Sweep**: In Rush Hour mode, the recovery sweep loads all pending orders into the FIFO queue and prints them sequentially. |
