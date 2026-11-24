@@ -697,7 +697,7 @@ const KioskApp: React.FC = () => {
                 kioskState.defaultPrinter
               );
               return (
-                <div className="brand-subtitle" title={fleet.tooltip}>
+                <div className="brand-subtitle">
                   Machine ID: {kioskState.machineId} • {fleet.label}
                 </div>
               );
