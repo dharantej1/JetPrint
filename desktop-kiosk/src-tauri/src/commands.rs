@@ -9,9 +9,11 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use crate::logger::AppLogger;
 use crate::models::{
     AppConfig, CompleteFirstRunResult, ConfiguredPrinter, JobStatus, KioskState, PrintJob,
-    PrintResult, PrinterInfo, PrinterPoolType, UpdateSettingsInput,
+    PrintResult, PrinterInfo, UpdateSettingsInput,
 };
-use crate::printer::{list_system_printers, print_job_files_pooled, print_test_page};
+use crate::printer::{
+    detect_printer_capabilities, list_system_printers, print_job_files_pooled, print_test_page,
+};
 use crate::security::{
     generate_recovery_phrase, hash_secret, normalize_phrase, validate_phrase, verify_secret,
 };
@@ -513,30 +515,13 @@ pub fn get_configured_printers(
             }
             result.push(existing);
         } else {
-            let mut caps = vec!["bw".to_string(), "a4".to_string()];
-            let lower_name = sp.name.to_lowercase();
-            if lower_name.contains("color")
-                || lower_name.contains("colour")
-                || lower_name.contains("clx")
-            {
-                caps.push("color".to_string());
-            }
-            if lower_name.contains("a3")
-                || lower_name.contains("wide")
-                || lower_name.contains("large")
-            {
-                caps.push("a3".to_string());
-            }
+            let (caps, pool) = detect_printer_capabilities(&sp.name);
             result.push(ConfiguredPrinter {
                 id: sp.name.clone(),
                 name: sp.name.clone(),
                 nickname: None,
                 enabled: true,
-                pool: if caps.contains(&"color".to_string()) {
-                    PrinterPoolType::Color
-                } else {
-                    PrinterPoolType::Bw
-                },
+                pool,
                 capabilities: caps,
                 is_default: sp.is_default,
             });

@@ -179,7 +179,7 @@ To guarantee that jobs paid while the desktop app is closed, suspended, or offli
   - `build_file_print_properties()`: Assembles sanitized CUPS options (`fit-to-page`, `orientation-requested: 3`, `media-source: auto`) while preventing duplicate `landscape` tags for pre-composed print-ready documents.
   - `list_system_printers()`: Enumerates system printers via the `printers` crate, performs canonical name matching, resolves Bonjour ghost loopback aliases (`<PrinterName> @ <Host>`), and deduplicates network loopback entries.
   - `resolve_printer_with_alias_handling()`: Intelligent alias resolution matching requested printer names against canonical hardware queues or network aliases, with automatic fallback to the OS default printer.
-  - `route_file_to_printer()`: Smart capability routing matching document properties (Color/BW, A4/A3/Legal) to pool queues with round-robin load balancing and fallback cascade.
+  - `route_file_to_printer()`: Capability-based routing matching document requirements (Color/BW, A4/A3/Legal/Letter) with round-robin multi-printer load balancing and graceful fallback cascade.
   - `print_job_files_pooled()`: Dispatches each file in a job to its resolved printer with fallback handling.
   - `print_test_page()`: Sends an aligned diagnostic test page to any selected printer.
 - **`src/ws_client.rs`**:

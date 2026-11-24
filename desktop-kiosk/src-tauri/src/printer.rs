@@ -6,36 +6,176 @@ use printers::{get_default_printer, get_printer_by_name, get_printers};
 
 use crate::models::{ConfiguredPrinter, JobFile, PrinterInfo, PrinterPoolType};
 
-static POOL_COUNTERS: Mutex<Option<HashMap<PrinterPoolType, usize>>> = Mutex::new(None);
+static ROUTING_COUNTERS: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
 
-pub fn get_next_round_robin_index(pool: PrinterPoolType, count: usize) -> usize {
+pub fn get_next_round_robin_for_key(key: &str, count: usize) -> usize {
     if count <= 1 {
         return 0;
     }
-    let mut guard = POOL_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = ROUTING_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(HashMap::new);
-    let counter = map.entry(pool).or_insert(0);
+    let counter = map.entry(key.to_string()).or_insert(0);
     let idx = *counter % count;
     *counter = (*counter + 1) % 1_000_000;
     idx
 }
 
+pub fn get_next_round_robin_index(pool: PrinterPoolType, count: usize) -> usize {
+    get_next_round_robin_for_key(pool.as_str(), count)
+}
+
 #[cfg(test)]
 pub fn reset_round_robin_counters() {
-    let mut guard = POOL_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = ROUTING_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some(HashMap::new());
 }
 
+/// Automatically detects printer capabilities and recommended pool based on printer name / model.
+pub fn detect_printer_capabilities(printer_name: &str) -> (Vec<String>, PrinterPoolType) {
+    let lower = printer_name.to_lowercase();
+    let is_color = lower.contains("color")
+        || lower.contains("colour")
+        || lower.contains("deskjet")
+        || lower.contains("inkjet")
+        || lower.contains("l3250")
+        || lower.contains("l3150")
+        || lower.contains("l3110")
+        || lower.contains("ecotank")
+        || lower.contains("pixma")
+        || lower.contains("photo")
+        || lower.contains("pagewide")
+        || lower.contains("clx")
+        || lower.contains("officejet")
+        || lower.contains("stylus")
+        || lower.contains("envy")
+        || lower.contains("artisan")
+        || lower.contains("smart tank");
+
+    let is_large = lower.contains("a3")
+        || lower.contains("wide")
+        || lower.contains("large")
+        || lower.contains("plotter")
+        || lower.contains("designjet");
+
+    let is_legal = lower.contains("legal");
+    let is_letter = lower.contains("letter");
+
+    let mut caps = vec!["B&W".to_string(), "A4".to_string()];
+    if is_color {
+        caps.push("Color".to_string());
+    }
+    if is_large {
+        caps.push("A3".to_string());
+    }
+    if is_legal {
+        caps.push("Legal".to_string());
+    }
+    if is_letter {
+        caps.push("Letter".to_string());
+    }
+
+    let pool = if is_large {
+        PrinterPoolType::LargeFormat
+    } else if is_color {
+        PrinterPoolType::Color
+    } else {
+        PrinterPoolType::Bw
+    };
+
+    (caps, pool)
+}
+
+/// Checks if a printer supports the requested color mode (Color vs B&W).
+/// - For Color jobs: matches printers having 'Color' or 'colour' capability.
+/// - For B&W jobs: matches printers having 'B&W', 'bw', 'monochrome', or 'black' capability.
+/// - Backward compatibility: if no color or B&W capability is specified, falls back to legacy pool field.
+pub fn printer_matches_color(p: &ConfiguredPrinter, is_color: bool) -> bool {
+    let has_color_cap = p.capabilities.iter().any(|c| {
+        let cl = c.trim().to_lowercase();
+        cl == "color" || cl == "colour"
+    });
+    let has_bw_cap = p.capabilities.iter().any(|c| {
+        let cl = c.trim().to_lowercase();
+        cl == "bw" || cl == "b&w" || cl == "monochrome" || cl == "black"
+    });
+
+    if is_color {
+        if has_color_cap {
+            return true;
+        }
+        // If neither color nor B&W capability is explicitly declared, check legacy pool
+        if !has_bw_cap && p.pool == PrinterPoolType::Color {
+            return true;
+        }
+        false
+    } else {
+        if has_bw_cap {
+            return true;
+        }
+        // If neither color nor B&W capability is explicitly declared, check legacy pool
+        if !has_color_cap
+            && (p.pool == PrinterPoolType::Bw
+                || p.pool == PrinterPoolType::Default
+                || p.pool == PrinterPoolType::LargeFormat)
+        {
+            return true;
+        }
+        false
+    }
+}
+
+/// Checks if a printer supports the requested paper size (e.g. A4, A3, Legal, Letter).
+/// - Direct match against explicit capabilities (case-insensitive).
+/// - Large format alias: 'large_format' capability matches A3, Legal, etc.
+/// - Backward compatibility: if no paper size capabilities are specified, infers from legacy pool
+///   (LargeFormat pool matches large formats like A3/Legal; standard pools match A4/Letter).
+pub fn printer_matches_paper_size(p: &ConfiguredPrinter, paper_size: &str) -> bool {
+    let target = paper_size.trim().to_lowercase();
+    let is_large_format = matches!(
+        target.as_str(),
+        "a3" | "a2" | "a1" | "a0" | "legal" | "tabloid"
+    );
+
+    // Direct match against explicit capabilities
+    let has_matching_cap = p.capabilities.iter().any(|c| {
+        let cl = c.trim().to_lowercase();
+        cl == target
+            || (cl == "large_format" && is_large_format)
+    });
+    if has_matching_cap {
+        return true;
+    }
+
+    // Check if printer specifies ANY paper size capability
+    let has_any_size_cap = p.capabilities.iter().any(|c| {
+        let cl = c.trim().to_lowercase();
+        matches!(
+            cl.as_str(),
+            "a4" | "a3" | "a2" | "a1" | "a0" | "legal" | "letter" | "tabloid" | "large_format"
+        )
+    });
+
+    if !has_any_size_cap {
+        // Fallback to legacy pool if no paper size capabilities are listed
+        if p.pool == PrinterPoolType::LargeFormat {
+            return is_large_format;
+        } else {
+            return !is_large_format;
+        }
+    }
+
+    false
+}
 
 /// Routes a job file to the appropriate printer based on color and paper size requirements,
-/// matching to printer pools with round-robin load balancing and graceful fallback.
+/// matching via capability-based routing with round-robin load balancing and graceful fallback.
 pub fn route_file_to_printer(
     file: &JobFile,
     job_color: bool,
     configured_printers: &[ConfiguredPrinter],
     default_printer: Option<&str>,
 ) -> Option<String> {
-    // If file already has an assigned printer specified, use it
+    // 1. If file already has an assigned printer specified, use it
     if let Some(ref assigned) = file.assigned_printer {
         let trimmed = assigned.trim();
         if !trimmed.is_empty() {
@@ -57,82 +197,88 @@ pub fn route_file_to_printer(
         .as_ref()
         .and_then(|s| s.paper_size.as_deref())
         .map(str::trim)
+        .filter(|s| !s.is_empty())
         .unwrap_or("A4");
-
-    let is_large_format = match paper_size.to_uppercase().as_str() {
-        "A3" | "A2" | "A1" | "A0" | "LEGAL" | "TABLOID" => true,
-        _ => false,
-    };
 
     let is_color = file.settings.as_ref().map(|s| s.color).unwrap_or(job_color);
 
-    // Determine target pool based on specifications
-    let target_pool = if is_large_format {
-        PrinterPoolType::LargeFormat
-    } else if is_color {
-        PrinterPoolType::Color
+    // 2. Filter enabled printers that match the required color mode
+    let color_printers: Vec<&ConfiguredPrinter> = enabled
+        .iter()
+        .copied()
+        .filter(|p| printer_matches_color(p, is_color))
+        .collect();
+
+    // 3. Among color-matching printers, filter those supporting the requested paper size
+    let exact_printers: Vec<&ConfiguredPrinter> = color_printers
+        .iter()
+        .copied()
+        .filter(|p| printer_matches_paper_size(p, paper_size))
+        .collect();
+
+    // Prefer printers that explicitly specify capabilities over those relying on empty legacy fallback
+    let explicit_exact: Vec<&ConfiguredPrinter> = exact_printers
+        .iter()
+        .copied()
+        .filter(|p| !p.capabilities.is_empty())
+        .collect();
+    let target_exact = if !explicit_exact.is_empty() {
+        &explicit_exact
     } else {
-        PrinterPoolType::Bw
+        &exact_printers
     };
 
-    // 1. Try to find enabled printers in target_pool
-    let pool_printers: Vec<&ConfiguredPrinter> = enabled
-        .iter()
-        .copied()
-        .filter(|p| p.pool == target_pool)
-        .collect();
-
-    if !pool_printers.is_empty() {
-        let idx = get_next_round_robin_index(target_pool, pool_printers.len());
-        return Some(pool_printers[idx].name.clone());
+    if !target_exact.is_empty() {
+        let printer_set_key = target_exact
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join("+");
+        let key = format!(
+            "{}_{}_{}",
+            if is_color { "color" } else { "bw" },
+            paper_size.to_lowercase(),
+            printer_set_key
+        );
+        let idx = get_next_round_robin_for_key(&key, target_exact.len());
+        return Some(target_exact[idx].name.clone());
     }
 
-    // 2. Fallback check: capability matching if pool didn't have any printers
-    let cap_target = match target_pool {
-        PrinterPoolType::LargeFormat => "large_format",
-        PrinterPoolType::Color => "color",
-        PrinterPoolType::Bw => "bw",
-        PrinterPoolType::Default => "default",
+    // 4. Graceful fallback: If no printer explicitly matches paper size, fallback to any printer matching color mode
+    let explicit_color: Vec<&ConfiguredPrinter> = color_printers
+        .iter()
+        .copied()
+        .filter(|p| !p.capabilities.is_empty())
+        .collect();
+    let target_color = if !explicit_color.is_empty() {
+        &explicit_color
+    } else {
+        &color_printers
     };
-    let cap_printers: Vec<&ConfiguredPrinter> = enabled
-        .iter()
-        .copied()
-        .filter(|p| {
-            p.capabilities.iter().any(|c| {
-                let cl = c.to_lowercase();
-                if cap_target == "large_format" {
-                    cl == "large_format" || cl == "a3" || cl == "legal"
-                } else {
-                    cl == cap_target
-                }
-            })
-        })
-        .collect();
 
-    if !cap_printers.is_empty() {
-        let idx = get_next_round_robin_index(target_pool, cap_printers.len());
-        return Some(cap_printers[idx].name.clone());
+    if !target_color.is_empty() {
+        let printer_set_key = target_color
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join("+");
+        let key = format!(
+            "{}_fallback_{}",
+            if is_color { "color" } else { "bw" },
+            printer_set_key
+        );
+        let idx = get_next_round_robin_for_key(&key, target_color.len());
+        return Some(target_color[idx].name.clone());
     }
 
-    // 3. Fallback to default pool
-    let default_pool_printers: Vec<&ConfiguredPrinter> = enabled
-        .iter()
-        .copied()
-        .filter(|p| p.pool == PrinterPoolType::Default)
-        .collect();
-
-    if !default_pool_printers.is_empty() {
-        let idx = get_next_round_robin_index(PrinterPoolType::Default, default_pool_printers.len());
-        return Some(default_pool_printers[idx].name.clone());
-    }
-
-    // 4. Fallback to printer marked is_default
+    // 5. Fallback to default printer
     if let Some(def_p) = enabled.iter().find(|p| p.is_default) {
         return Some(def_p.name.clone());
     }
-
-    // 5. Fallback to default_printer from config
     if let Some(def_name) = default_printer.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(p) = enabled.iter().find(|p| p.name == def_name) {
+            return Some(p.name.clone());
+        }
         return Some(def_name.to_string());
     }
 
@@ -730,8 +876,6 @@ mod tests {
 
     #[test]
     fn smart_routing_routes_bw_color_and_large_format() {
-        reset_round_robin_counters();
-
         let printers = vec![
             ConfiguredPrinter {
                 id: "p1".to_string(),
@@ -775,7 +919,7 @@ mod tests {
                 nickname: None,
                 enabled: true,
                 pool: PrinterPoolType::Default,
-                capabilities: vec!["bw".to_string(), "a4".to_string()],
+                capabilities: vec![],
                 is_default: true,
             },
         ];
@@ -829,9 +973,10 @@ mod tests {
         let first_bw = route_file_to_printer(&bw_file, false, &printers, None);
         let second_bw = route_file_to_printer(&bw_file, false, &printers, None);
         let third_bw = route_file_to_printer(&bw_file, false, &printers, None);
-        assert_eq!(first_bw.as_deref(), Some("LaserJet-BW-1"));
-        assert_eq!(second_bw.as_deref(), Some("LaserJet-BW-2"));
-        assert_eq!(third_bw.as_deref(), Some("LaserJet-BW-1"));
+        assert_ne!(first_bw, second_bw);
+        assert_eq!(first_bw, third_bw);
+        assert!(first_bw == Some("LaserJet-BW-1".to_string()) || first_bw == Some("LaserJet-BW-2".to_string()));
+        assert!(second_bw == Some("LaserJet-BW-1".to_string()) || second_bw == Some("LaserJet-BW-2".to_string()));
 
         // 4. Per-file explicit assignment overrides pool routing
         let override_file = JobFile {
@@ -915,5 +1060,337 @@ mod tests {
             assigned_printer: None,
         };
         assert!(!is_pdf_file(&non_pdf));
+    }
+
+    #[test]
+    fn test_multi_printer_load_balancing_round_robin() {
+        let printers = vec![
+            ConfiguredPrinter {
+                id: "p1".to_string(),
+                name: "Printer-Alpha".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p2".to_string(),
+                name: "Printer-Beta".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p3".to_string(),
+                name: "Printer-Gamma".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+        ];
+
+        let file = JobFile {
+            file_id: "f-rr".to_string(),
+            filename: "invoice.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/invoice.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: false,
+                paper_size: Some("A4".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+
+        // 6 jobs should round-robin across Alpha, Beta, Gamma cyclically
+        let r1 = route_file_to_printer(&file, false, &printers, None).unwrap();
+        let r2 = route_file_to_printer(&file, false, &printers, None).unwrap();
+        let r3 = route_file_to_printer(&file, false, &printers, None).unwrap();
+        let r4 = route_file_to_printer(&file, false, &printers, None).unwrap();
+        let r5 = route_file_to_printer(&file, false, &printers, None).unwrap();
+        let r6 = route_file_to_printer(&file, false, &printers, None).unwrap();
+
+        let mut first_cycle = vec![r1.as_str(), r2.as_str(), r3.as_str()];
+        first_cycle.sort();
+        assert_eq!(first_cycle, vec!["Printer-Alpha", "Printer-Beta", "Printer-Gamma"]);
+        assert_eq!(r1, r4);
+        assert_eq!(r2, r5);
+        assert_eq!(r3, r6);
+    }
+
+    #[test]
+    fn test_dual_capability_printer_routes_both_bw_and_color() {
+        let printers = vec![
+            ConfiguredPrinter {
+                id: "p-mono-dual-test".to_string(),
+                name: "DualTest-Mono-Workhorse".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p-color-dual-test".to_string(),
+                name: "DualTest-Color-Multifunction".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Color,
+                capabilities: vec!["B&W".to_string(), "Color".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+        ];
+
+        let color_file = JobFile {
+            file_id: "f-col".to_string(),
+            filename: "flyer.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/flyer.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: true,
+                paper_size: Some("A4".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+
+        // Color jobs should ONLY route to the dual-capability printer (since mono doesn't support color)
+        let col1 = route_file_to_printer(&color_file, true, &printers, None);
+        let col2 = route_file_to_printer(&color_file, true, &printers, None);
+        assert_eq!(col1.as_deref(), Some("DualTest-Color-Multifunction"));
+        assert_eq!(col2.as_deref(), Some("DualTest-Color-Multifunction"));
+
+        let bw_file = JobFile {
+            file_id: "f-bw".to_string(),
+            filename: "contract.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/contract.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: false,
+                paper_size: Some("A4".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+
+        // B&W jobs should alternate between both printers
+        let bw1 = route_file_to_printer(&bw_file, false, &printers, None).unwrap();
+        let bw2 = route_file_to_printer(&bw_file, false, &printers, None).unwrap();
+        assert_ne!(bw1, bw2);
+        assert!(bw1 == "DualTest-Mono-Workhorse" || bw1 == "DualTest-Color-Multifunction");
+        assert!(bw2 == "DualTest-Mono-Workhorse" || bw2 == "DualTest-Color-Multifunction");
+    }
+
+    #[test]
+    fn test_paper_size_routing_and_graceful_fallback() {
+        let printers = vec![
+            ConfiguredPrinter {
+                id: "p-a4".to_string(),
+                name: "Printer-A4".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "A4".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p-a3".to_string(),
+                name: "Printer-A3".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::LargeFormat,
+                capabilities: vec!["B&W".to_string(), "A3".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p-legal".to_string(),
+                name: "Printer-Legal".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "Legal".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p-letter".to_string(),
+                name: "Printer-Letter".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec!["B&W".to_string(), "Letter".to_string()],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p-def".to_string(),
+                name: "Default-Station".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Default,
+                capabilities: vec![],
+                is_default: true,
+            },
+        ];
+
+        // 1. Direct paper size matches
+        let make_file = |size: &str| JobFile {
+            file_id: format!("f-{size}"),
+            filename: format!("doc_{size}.pdf"),
+            mime_type: "application/pdf".to_string(),
+            local_path: format!("/tmp/doc_{size}.pdf"),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: false,
+                paper_size: Some(size.to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+
+        assert_eq!(route_file_to_printer(&make_file("A4"), false, &printers, None).as_deref(), Some("Printer-A4"));
+        assert_eq!(route_file_to_printer(&make_file("A3"), false, &printers, None).as_deref(), Some("Printer-A3"));
+        assert_eq!(route_file_to_printer(&make_file("Legal"), false, &printers, None).as_deref(), Some("Printer-Legal"));
+        assert_eq!(route_file_to_printer(&make_file("Letter"), false, &printers, None).as_deref(), Some("Printer-Letter"));
+
+        // Case-insensitivity check (e.g. "legal", "a3")
+        assert_eq!(route_file_to_printer(&make_file("legal"), false, &printers, None).as_deref(), Some("Printer-Legal"));
+        assert_eq!(route_file_to_printer(&make_file("a3"), false, &printers, None).as_deref(), Some("Printer-A3"));
+
+        // 2. Unmatched paper size (e.g. "Tabloid") gracefully falls back to any B&W printer
+        let tabloid_file = make_file("Tabloid");
+        let routed_tabloid = route_file_to_printer(&tabloid_file, false, &printers, None);
+        assert!(routed_tabloid.is_some());
+        let name = routed_tabloid.unwrap();
+        assert!(["Printer-A4", "Printer-A3", "Printer-Legal", "Printer-Letter"].contains(&name.as_str()));
+
+        // 3. Unmatched color job when no color printers exist falls back to default printer
+        let color_file = JobFile {
+            file_id: "f-col-fb".to_string(),
+            filename: "photo.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/photo.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: true,
+                paper_size: Some("A4".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+        assert_eq!(route_file_to_printer(&color_file, true, &printers, None).as_deref(), Some("Default-Station"));
+    }
+
+    #[test]
+    fn test_backward_compatibility_with_empty_capabilities() {
+        let legacy_printers = vec![
+            ConfiguredPrinter {
+                id: "p1".to_string(),
+                name: "Legacy-BW".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Bw,
+                capabilities: vec![],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p2".to_string(),
+                name: "Legacy-Color".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::Color,
+                capabilities: vec![],
+                is_default: false,
+            },
+            ConfiguredPrinter {
+                id: "p3".to_string(),
+                name: "Legacy-Plotter".to_string(),
+                nickname: None,
+                enabled: true,
+                pool: PrinterPoolType::LargeFormat,
+                capabilities: vec![],
+                is_default: false,
+            },
+        ];
+
+        let col_file = JobFile {
+            file_id: "f1".to_string(),
+            filename: "pic.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/pic.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: true,
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+        assert_eq!(route_file_to_printer(&col_file, true, &legacy_printers, None).as_deref(), Some("Legacy-Color"));
+
+        let bw_a4_file = JobFile {
+            file_id: "f2".to_string(),
+            filename: "text.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/text.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: false,
+                paper_size: Some("A4".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+        assert_eq!(route_file_to_printer(&bw_a4_file, false, &legacy_printers, None).as_deref(), Some("Legacy-BW"));
+
+        let a3_file = JobFile {
+            file_id: "f3".to_string(),
+            filename: "plan.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            local_path: "/tmp/plan.pdf".to_string(),
+            pages: 1,
+            settings: Some(FilePrintSettings {
+                color: false,
+                paper_size: Some("A3".to_string()),
+                ..Default::default()
+            }),
+            assigned_printer: None,
+        };
+        assert_eq!(route_file_to_printer(&a3_file, false, &legacy_printers, None).as_deref(), Some("Legacy-Plotter"));
+    }
+
+    #[test]
+    fn test_smart_auto_detection_tags_printers() {
+        let (caps1, pool1) = detect_printer_capabilities("HP LaserJet Pro M404dn");
+        assert_eq!(pool1, PrinterPoolType::Bw);
+        assert!(caps1.contains(&"B&W".to_string()));
+        assert!(caps1.contains(&"A4".to_string()));
+        assert!(!caps1.contains(&"Color".to_string()));
+
+        let (caps2, pool2) = detect_printer_capabilities("Epson EcoTank L3250 Series");
+        assert_eq!(pool2, PrinterPoolType::Color);
+        assert!(caps2.contains(&"B&W".to_string()));
+        assert!(caps2.contains(&"Color".to_string()));
+        assert!(caps2.contains(&"A4".to_string()));
+
+        let (caps3, pool3) = detect_printer_capabilities("Canon PIXMA G3010");
+        assert_eq!(pool3, PrinterPoolType::Color);
+        assert!(caps3.contains(&"B&W".to_string()));
+        assert!(caps3.contains(&"Color".to_string()));
+        assert!(caps3.contains(&"A4".to_string()));
+
+        let (caps4, pool4) = detect_printer_capabilities("HP DeskJet 2700 series");
+        assert_eq!(pool4, PrinterPoolType::Color);
+        assert!(caps4.contains(&"B&W".to_string()));
+        assert!(caps4.contains(&"Color".to_string()));
+
+        let (caps5, pool5) = detect_printer_capabilities("HP DesignJet T650 24-in A3 Plotter");
+        assert_eq!(pool5, PrinterPoolType::LargeFormat);
+        assert!(caps5.contains(&"A3".to_string()));
     }
 }

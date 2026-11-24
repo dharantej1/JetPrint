@@ -218,29 +218,34 @@ Once unlocked, JetPrint transitions into a **Full-Page Dedicated Settings Worksp
 
 ---
 
-## 6. Printers & Multi-Printer Pools (Managing 10–20+ Printers)
+## 6. Printers & Smart Capability Routing (Managing 10–20+ Printers)
 
 JetPrint supports scaling from a single counter printer to high-volume print shops managing **10 to 20+ printers**.
 
-### Master-Detail Interface & Interactive Pool Filters
+### Minimal Status Strip & Intuitive Capability Cards
 
-Under the **Printers & Pools** tab, JetPrint provides an ergonomic Master-Detail configuration workspace:
+Under the **Printers** tab, JetPrint provides an ultra-clean, shop-friendly printer management interface:
 
-1. **Interactive Pool Filter Tabs (Header)**:
-   - Filter your printer list instantly by pool: **All Available**, **B&W Pool**, **Color Pool**, **Large Format**, and **Default Pool**.
-   - Each tab displays live counter pills showing how many active printers belong to that specific queue.
-2. **Master Printer List (Left Column)**:
-   - Lists every detected printer with live status indicators, default printer badges, and pool assignment tags.
-   - Selecting any printer opens its detailed settings in the right pane.
-3. **Detail Configuration Workspace (Right Column)**:
-   - **Printer Routing Status**: Toggle any printer active or disabled with a single click without disconnecting hardware.
-   - **Display Nickname**: Assign intuitive labels (e.g., *"Counter 1 - Fast Laser"*, *"Photo Station - Epson L805"*, *"Back Office - A3 Plotter"*).
-   - **Pool Assignment**: Assign to `B&W Pool (Monochrome)`, `Color Pool`, `Large Format Pool`, or `Default Pool`.
-   - **Capability Tags**: Toggle smart routing attributes (`B&W`, `Color`, `A4`, `A3`, `Legal`, `Duplex`).
-   - **Default Printer Selection**: Designate the kiosk primary fallback printer with one click (**Default Selected**).
-   - **Test Print**: Send a diagnostic alignment test page directly to the selected printer.
-4. **Rescan System Printers**:
+1. **Live Status Strip (Top)**:
+   - **B&W Ready**: Active count of printers configured for Black & White documents.
+   - **Color Ready**: Active count of printers configured for color & photos.
+   - **Active Trays**: Live summary showing which paper trays (A4, Legal, Letter, A3) are currently online and covered across your fleet.
+   - **Fleet Status**: Total online count (e.g. `1 of 1 Online`).
+2. **Search & Filter Toolbar**:
+   - **Live Search**: Instant real-time search filtering printers by nickname or hardware system queue name.
+   - **Quick Filters**: One-click pills to filter by role: **All**, **B&W**, **Color**, and **Large Paper (A3 / Legal)**.
+   - **Density Switcher**: Switch between **Comfortable** (full bento cards with large toggle buttons) and **Compact** (streamlined single-row cards for shops with 10–20+ printers).
+3. **Printer Cards & Inline Controls**:
+   - **Auto-Expanding Nickname**: Click the printer name to edit its label inline (e.g. *"Counter 1 - Fast Laser"*, *"Photo Station - Epson L805"*). The input automatically expands to show the full name without truncation.
+   - **Hardware Queue Tag**: Subtly displays the underlying OS driver/queue name.
+   - **Default & Status Badges**: Immediate visual indicators for Default and OS Default printers.
+   - **Print Modes**: Direct toggle chips for `[✓] Black & White` and `[✓] Color & Photos`. Multi-function inkjets (e.g. Epson L3250) can enable both!
+   - **Paper Trays**: Multi-select pills for `[✓] A4`, `[✓] Legal`, `[✓] Letter`, and `[✓] A3`.
+   - **Diagnostic Test Print**: Send an alignment test sheet directly to the printer with one click.
+   - **Power Switch**: Enable or disable any printer instantly without disconnecting cables.
+4. **Smart Auto-Detection & Rescan**:
    - Click **Rescan System Printers** in the header anytime new USB or network printers are connected.
+   - JetPrint automatically inspects hardware names, detects color inkjets vs. monochrome lasers, and pre-selects capabilities on first scan.
 
 ### Cross-Platform Print Engines & Native macOS PDFKit Spooling
 

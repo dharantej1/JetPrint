@@ -2,6 +2,10 @@ import React, { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Printer,
+  Search,
+  X,
+  LayoutGrid,
+  List,
   DollarSign,
   Sliders,
   Cloud,
@@ -19,7 +23,6 @@ import {
   Zap,
   Check,
   Keyboard as KeyboardIcon,
-  ChevronDown,
 } from "lucide-react";
 import type {
   ConfiguredPrinter,
@@ -68,14 +71,42 @@ type SettingsTab =
   | "relay"
   | "system";
 
-const CAPABILITY_OPTIONS = ["B&W", "Color", "A4", "A3", "Legal", "Duplex"];
 
-const POOL_OPTIONS: { id: PrinterPoolType; label: string; description: string }[] = [
-  { id: "bw", label: "B&W Pool", description: "Standard monochrome documents" },
-  { id: "color", label: "Color Pool", description: "Color pages & photo prints" },
-  { id: "large_format", label: "Large Format", description: "A3 & Legal paper sizes" },
-  { id: "default", label: "Default Pool", description: "Fallback queue for all jobs" },
-];
+const detectPrinterCapabilities = (name: string, driverName?: string): string[] => {
+  const combined = `${name} ${driverName || ""}`.toLowerCase();
+  const caps: string[] = ["A4"];
+  const isColor =
+    combined.includes("color") ||
+    combined.includes("colour") ||
+    combined.includes("deskjet") ||
+    combined.includes("inktank") ||
+    combined.includes("ink tank") ||
+    combined.includes("ecotank") ||
+    combined.includes("eco tank") ||
+    combined.includes("l3250") ||
+    combined.includes("l3150") ||
+    combined.includes("pixma") ||
+    combined.includes("photo") ||
+    combined.includes("officejet") ||
+    combined.includes("stylus");
+
+  caps.push("B&W");
+  if (isColor) {
+    caps.push("Color");
+  }
+  if (
+    combined.includes("a3") ||
+    combined.includes("plotter") ||
+    combined.includes("designjet") ||
+    combined.includes("large")
+  ) {
+    caps.push("A3");
+  }
+  if (combined.includes("legal")) {
+    caps.push("Legal");
+  }
+  return caps;
+};
 
 export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
   kioskState,
@@ -129,7 +160,59 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
 
   // Printer Master-Detail & pool filter state
   const [selectedPrinterKey, setSelectedPrinterKey] = useState<string>("");
-  const [poolFilter, setPoolFilter] = useState<string>("all");
+  
+  const [printerFilter, setPrinterFilter] = useState<string>("all");
+  const [printerSearchQuery, setPrinterSearchQuery] = useState<string>("");
+  const [printerDensity, setPrinterDensity] = useState<"comfortable" | "compact">("comfortable");
+
+  const handleTogglePrintMode = (systemName: string, mode: "B&W" | "Color") => {
+    setConfiguredPrinters((prev) =>
+      prev.map((p) => {
+        if (p.systemName === systemName || p.name === systemName) {
+          const hasMode = p.capabilities.some(
+            (c) => c.toLowerCase() === mode.toLowerCase()
+          );
+          let nextCaps: string[];
+          if (hasMode) {
+            const otherMode = mode === "B&W" ? "Color" : "B&W";
+            const hasOther = p.capabilities.some(
+              (c) => c.toLowerCase() === otherMode.toLowerCase()
+            );
+            if (!hasOther) return p;
+            nextCaps = p.capabilities.filter(
+              (c) => c.toLowerCase() !== mode.toLowerCase()
+            );
+          } else {
+            nextCaps = [...p.capabilities, mode];
+          }
+          return { ...p, capabilities: nextCaps };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleTogglePaperTray = (systemName: string, size: string) => {
+    setConfiguredPrinters((prev) =>
+      prev.map((p) => {
+        if (p.systemName === systemName || p.name === systemName) {
+          const hasSize = p.capabilities.includes(size);
+          let nextCaps: string[];
+          if (hasSize) {
+            const otherSizes = p.capabilities.filter((c) =>
+              ["A4", "Legal", "Letter", "A3"].includes(c)
+            );
+            if (otherSizes.length <= 1) return p;
+            nextCaps = p.capabilities.filter((c) => c !== size);
+          } else {
+            nextCaps = [...p.capabilities, size];
+          }
+          return { ...p, capabilities: nextCaps };
+        }
+        return p;
+      })
+    );
+  };
 
   useEffect(() => {
     if (configuredPrinters.length > 0) {
@@ -195,14 +278,15 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         // Map system printers to initial configured printers
         const initial = sysPrinters.map((p) => {
           const isDef = p.isDefault || p.name === kioskState.defaultPrinter;
+          const autoCaps = detectPrinterCapabilities(p.name, p.systemName);
           return {
             id: p.systemName || p.name,
             systemName: p.systemName || p.name,
             name: p.name,
             nickname: p.name,
             enabled: true,
-            capabilities: ["B&W", "A4"],
-            pool: (isDef ? "default" : "bw") as PrinterPoolType,
+            capabilities: autoCaps,
+            pool: (isDef ? "default" : autoCaps.includes("Color") ? "color" : "bw") as PrinterPoolType,
             isDefault: isDef,
             state: p.state,
           };
@@ -255,21 +339,6 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
           ? { ...p, ...updates }
           : p
       )
-    );
-  };
-
-  const handleToggleCapability = (systemName: string, cap: string) => {
-    setConfiguredPrinters((prev) =>
-      prev.map((p) => {
-        if (p.systemName === systemName || p.name === systemName) {
-          const exists = p.capabilities.includes(cap);
-          const nextCaps = exists
-            ? p.capabilities.filter((c) => c !== cap)
-            : [...p.capabilities, cap];
-          return { ...p, capabilities: nextCaps };
-        }
-        return p;
-      })
     );
   };
 
@@ -861,402 +930,850 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
             gap: 24,
           }}
         >
-          {/* TAB 1: PRINTERS & POOLS */}
-          {activeTab === "printers" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 16,
-                }}
-              >
-                <div>
-                  <h2
-                    style={{
-                      fontSize: 20,
-                      fontWeight: 700,
-                      margin: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <Printer size={22} color="#818cf8" />
-                    <span>Printers &amp; Pool Assignments</span>
-                  </h2>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      color: "var(--text-secondary)",
-                      marginTop: 4,
-                      marginBottom: 0,
-                    }}
-                  >
-                    Configure printer nicknames, routing pools (B&amp;W, Color, Large Format), and paper capabilities.
-                  </p>
-                </div>
+          {/* TAB 1: PRINTERS & CAPABILITIES (MINIMALIST SINGLE-VIEW BENTO ROWS) */}
+          {activeTab === "printers" && (() => {
+            const activePrinters = configuredPrinters.filter((p) => p.enabled);
+            const bwActiveCount = activePrinters.filter(
+              (p) =>
+                p.capabilities.some(
+                  (c) => c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
+                ) || p.pool === "bw"
+            ).length;
+            const colorActiveCount = activePrinters.filter(
+              (p) =>
+                p.capabilities.some((c) => c.toLowerCase() === "color") ||
+                p.pool === "color"
+            ).length;
+            const readyPaperSizes = ["A4", "Legal", "Letter", "A3"].filter((size) =>
+              activePrinters.some((p) => p.capabilities.includes(size))
+            );
 
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={fetchPrinters}
-                  disabled={loadingPrinters}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            const filteredPrinters = configuredPrinters.filter((p) => {
+              if (printerSearchQuery.trim()) {
+                const q = printerSearchQuery.toLowerCase().trim();
+                const nameMatch = (p.name || "").toLowerCase().includes(q);
+                const nicknameMatch = (p.nickname || "").toLowerCase().includes(q);
+                const systemMatch = (p.systemName || "").toLowerCase().includes(q);
+                const capMatch = p.capabilities.some((c) => c.toLowerCase().includes(q));
+                if (!nameMatch && !nicknameMatch && !systemMatch && !capMatch) {
+                  return false;
+                }
+              }
+
+              if (printerFilter === "bw") {
+                return (
+                  p.capabilities.some(
+                    (c) => c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
+                  ) || p.pool === "bw"
+                );
+              }
+              if (printerFilter === "color") {
+                return (
+                  p.capabilities.some((c) => c.toLowerCase() === "color") ||
+                  p.pool === "color"
+                );
+              }
+              if (printerFilter === "large") {
+                return (
+                  p.capabilities.some(
+                    (c) => c.toLowerCase() === "a3" || c.toLowerCase() === "legal"
+                  ) || p.pool === "large_format"
+                );
+              }
+              return true;
+            });
+
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                {/* Minimal Header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 16,
+                  }}
                 >
-                  <RefreshCw
-                    size={15}
-                    className={loadingPrinters ? "spin" : ""}
-                  />
-                  <span>Rescan System Printers</span>
-                </button>
-              </div>
-
-              {/* Interactive Pool Filter Tabs */}
-              <div className="pool-filter-tabs">
-                <button
-                  type="button"
-                  className={`pool-tab-btn ${poolFilter === "all" ? "active" : ""}`}
-                  onClick={() => setPoolFilter("all")}
-                >
-                  <div className="pool-tab-top">
-                    <span className="pool-tab-label">All Available</span>
-                    <span className="pool-tab-badge">{configuredPrinters.length}</span>
-                  </div>
-                  <span className="pool-tab-desc">All system printers</span>
-                </button>
-
-                {POOL_OPTIONS.map((pool) => {
-                  const assigned = configuredPrinters.filter(
-                    (p) => p.pool === pool.id && p.enabled
-                  );
-                  const isFilterActive = poolFilter === pool.id;
-                  return (
-                    <button
-                      key={pool.id}
-                      type="button"
-                      className={`pool-tab-btn ${isFilterActive ? "active" : ""}`}
-                      onClick={() => setPoolFilter(pool.id)}
+                  <div>
+                    <h2
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 700,
+                        margin: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
                     >
-                      <div className="pool-tab-top">
-                        <span className="pool-tab-label">{pool.label}</span>
-                        <span
-                          className={`pool-tab-badge ${assigned.length > 0 ? "has-printers" : ""}`}
-                        >
-                          {assigned.length} {assigned.length === 1 ? "printer" : "printers"}
-                        </span>
-                      </div>
-                      <span className="pool-tab-desc">{pool.description}</span>
-                    </button>
-                  );
-                })}
-              </div>
+                      <Printer size={22} color="#818cf8" />
+                      <span>Printers &amp; Capabilities</span>
+                    </h2>
+                    <p
+                      style={{
+                        fontSize: 13,
+                        color: "var(--text-secondary)",
+                        marginTop: 4,
+                        marginBottom: 0,
+                      }}
+                    >
+                      Manage connected hardware, capabilities, and automatic print distribution.
+                    </p>
+                  </div>
 
-              {/* Master-Detail Printer Layout */}
-              {configuredPrinters.length === 0 ? (
-                <div className="printers-empty-panel">
-                  <p>
-                    {loadingPrinters
-                      ? "Scanning for connected printers..."
-                      : "No printers detected. Connect a printer or click 'Rescan System Printers'."}
-                  </p>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={fetchPrinters}
+                    disabled={loadingPrinters}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                  >
+                    <RefreshCw
+                      size={15}
+                      className={loadingPrinters ? "spin" : ""}
+                    />
+                    <span>Rescan System Printers</span>
+                  </button>
                 </div>
-              ) : (
-                <div className="printers-master-detail-grid">
-                  {/* Master List Column */}
-                  <div className="printers-master-pane">
-                    <div className="pane-header-title">
-                      <span>Available Printers</span>
-                      <span className="count-pill">
-                        {
-                          configuredPrinters.filter(
-                            (p) => poolFilter === "all" || p.pool === poolFilter
-                          ).length
-                        }
+
+                {/* Minimalist Status Strip */}
+                <div className="minimal-status-strip">
+                  <div className="status-strip-left">
+                    <div className="status-strip-item">
+                      <span
+                        className={`status-indicator-dot ${
+                          bwActiveCount > 0 ? "dot-online" : "dot-warning"
+                        }`}
+                      />
+                      <span className="status-strip-text">
+                        <strong>{bwActiveCount}</strong> B&amp;W Ready
+                        {bwActiveCount > 1 && (
+                          <span className="strip-badge-balanced">
+                            Auto-Balanced
+                          </span>
+                        )}
                       </span>
                     </div>
 
-                    <div className="printers-list-scroll">
-                      {configuredPrinters
-                        .filter(
-                          (p) => poolFilter === "all" || p.pool === poolFilter
-                        )
-                        .map((printer) => {
-                          const printerKey = printer.systemName || printer.name;
-                          const isSelected =
-                            selectedPrinterKey === printerKey ||
-                            selectedPrinterKey === printer.name;
-                          const isDefaultPr =
-                            printer.isDefault || defaultPrinterName === printer.name;
+                    <span className="status-strip-divider" />
 
-                          return (
-                            <div
-                              key={printerKey}
-                              className={`printer-item-card ${isSelected ? "selected" : ""} ${!printer.enabled ? "disabled" : ""}`}
-                              onClick={() => setSelectedPrinterKey(printerKey)}
-                            >
-                              <div className="printer-item-header">
-                                <div className="printer-status-name">
-                                  <span
-                                    className={`status-dot ${printer.enabled ? "enabled" : "disabled"}`}
-                                  />
-                                  <span
-                                    className="printer-card-name"
-                                    title={printer.nickname || printer.name}
-                                  >
-                                    {printer.nickname || printer.name}
-                                  </span>
-                                </div>
-                                {isDefaultPr && (
-                                  <span className="badge-default">Default</span>
-                                )}
-                              </div>
+                    <div className="status-strip-item">
+                      <span
+                        className={`status-indicator-dot ${
+                          colorActiveCount > 0 ? "dot-online" : "dot-muted"
+                        }`}
+                      />
+                      <span className="status-strip-text">
+                        <strong>{colorActiveCount}</strong> Color Ready
+                        {colorActiveCount > 1 && (
+                          <span className="strip-badge-balanced">
+                            Auto-Balanced
+                          </span>
+                        )}
+                      </span>
+                    </div>
 
-                              <div className="printer-item-footer">
-                                <span className="printer-driver-text">
-                                  {printer.systemName || printer.name}
-                                </span>
-                                <span
-                                  className={`pool-badge pool-${printer.pool || "default"}`}
-                                >
-                                  {printer.pool?.toUpperCase() || "DEFAULT"}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                    <span className="status-strip-divider" />
+
+                    <div className="status-strip-item">
+                      <Sliders size={13} style={{ opacity: 0.6 }} />
+                      <span className="status-strip-text">
+                        Trays:{" "}
+                        <strong>
+                          {readyPaperSizes.length > 0
+                            ? readyPaperSizes.join(", ")
+                            : "None"}
+                        </strong>
+                      </span>
                     </div>
                   </div>
 
-                  {/* Detail Configuration Column */}
-                  <div className="printers-detail-pane">
-                    {(() => {
-                      const selectedPrinter =
-                        configuredPrinters.find(
-                          (p) =>
-                            p.systemName === selectedPrinterKey ||
-                            p.name === selectedPrinterKey
-                        ) || configuredPrinters[0];
+                  <div className="status-strip-right">
+                    <span className="status-strip-count">
+                      {activePrinters.length} of {configuredPrinters.length} Online
+                    </span>
+                  </div>
+                </div>
 
-                      if (!selectedPrinter) {
-                        return (
-                          <div className="detail-empty-selection">
-                            <Printer
-                              size={36}
-                              style={{ opacity: 0.3, marginBottom: 8 }}
-                            />
-                            <p>
-                              Select a printer on the left to configure routing &amp; settings.
-                            </p>
-                          </div>
-                        );
-                      }
+                {/* Integrated Toolbar: Search, Filters & View Density (Always Visible) */}
+                <div className="printers-integrated-toolbar">
+                  {/* Search Input */}
+                  <div className="toolbar-search-wrap">
+                    <Search size={14} className="toolbar-search-icon" />
+                    <input
+                      type="text"
+                      className="toolbar-search-input"
+                      placeholder="Search by printer name or model..."
+                      value={printerSearchQuery}
+                      onChange={(e) => setPrinterSearchQuery(e.target.value)}
+                    />
+                    {printerSearchQuery && (
+                      <button
+                        type="button"
+                        className="toolbar-search-clear"
+                        onClick={() => setPrinterSearchQuery("")}
+                        title="Clear search"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
 
-                      const printerKey =
-                        selectedPrinter.systemName || selectedPrinter.name;
-                      const testStatus = testPrintStatus[printerKey];
-                      const isSystemDef = detectedPrinters.find(
-                        (p) => p.name === selectedPrinter.name
-                      )?.isDefault;
+                  {/* Filter Pills (Always Available) */}
+                  <div className="toolbar-filter-pills">
+                    <button
+                      type="button"
+                      className={`minimal-tab-btn ${
+                        printerFilter === "all" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterFilter("all")}
+                    >
+                      <span>All</span>
+                      <span className="minimal-tab-count">
+                        {configuredPrinters.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`minimal-tab-btn ${
+                        printerFilter === "bw" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterFilter("bw")}
+                    >
+                      <span>B&amp;W</span>
+                      <span className="minimal-tab-count">
+                        {
+                          configuredPrinters.filter(
+                            (p) =>
+                              p.capabilities.some(
+                                (c) =>
+                                  c.toLowerCase() === "b&w" ||
+                                  c.toLowerCase() === "bw"
+                              ) || p.pool === "bw"
+                          ).length
+                        }
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`minimal-tab-btn ${
+                        printerFilter === "color" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterFilter("color")}
+                    >
+                      <span>Color</span>
+                      <span className="minimal-tab-count">
+                        {
+                          configuredPrinters.filter(
+                            (p) =>
+                              p.capabilities.some(
+                                (c) => c.toLowerCase() === "color"
+                              ) || p.pool === "color"
+                          ).length
+                        }
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`minimal-tab-btn ${
+                        printerFilter === "large" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterFilter("large")}
+                    >
+                      <span>Large Paper</span>
+                      <span className="minimal-tab-count">
+                        {
+                          configuredPrinters.filter(
+                            (p) =>
+                              p.capabilities.some(
+                                (c) =>
+                                  c.toLowerCase() === "a3" ||
+                                  c.toLowerCase() === "legal"
+                              ) || p.pool === "large_format"
+                          ).length
+                        }
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Density Switcher */}
+                  <div className="toolbar-density-switcher">
+                    <button
+                      type="button"
+                      className={`density-switch-btn ${
+                        printerDensity === "comfortable" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterDensity("comfortable")}
+                      title="Comfortable bento cards"
+                    >
+                      <LayoutGrid size={13} />
+                      <span>Comfortable</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`density-switch-btn ${
+                        printerDensity === "compact" ? "active" : ""
+                      }`}
+                      onClick={() => setPrinterDensity("compact")}
+                      title="Compact table rows for large fleet"
+                    >
+                      <List size={13} />
+                      <span>Compact</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Printer List: Comfortable Bento vs Compact Single-Line Rows */}
+                {configuredPrinters.length === 0 ? (
+                  <div className="printers-empty-panel">
+                    <p>
+                      {loadingPrinters
+                        ? "Scanning for connected printers..."
+                        : "No printers detected. Connect a printer or click 'Rescan System Printers'."}
+                    </p>
+                  </div>
+                ) : filteredPrinters.length === 0 ? (
+                  <div
+                    className="printers-empty-panel"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <p style={{ margin: 0, fontSize: 14 }}>
+                      {printerSearchQuery.trim()
+                        ? `No printers matching "${printerSearchQuery}".`
+                        : printerFilter === "color"
+                        ? 'No color printers found. Check "Color & Photos" on any printer to accept color jobs.'
+                        : printerFilter === "bw"
+                        ? 'No black & white printers found. Check "Black & White" on any printer to accept monochrome jobs.'
+                        : printerFilter === "large"
+                        ? 'No large paper printers found. Check "A3" or "Legal" on any printer to accept large format jobs.'
+                        : "No printers found."}
+                    </p>
+                    {printerSearchQuery.trim() ? (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setPrinterSearchQuery("")}
+                        style={{
+                          padding: "6px 14px",
+                          fontSize: 13,
+                          borderRadius: "var(--radius-sm)",
+                        }}
+                      >
+                        Clear Search
+                      </button>
+                    ) : printerFilter !== "all" ? (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setPrinterFilter("all")}
+                        style={{
+                          padding: "6px 14px",
+                          fontSize: 13,
+                          borderRadius: "var(--radius-sm)",
+                        }}
+                      >
+                        Show All Printers
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setPrinterSearchQuery("");
+                          setPrinterFilter("all");
+                        }}
+                        style={{
+                          padding: "6px 14px",
+                          fontSize: 13,
+                          borderRadius: "var(--radius-sm)",
+                        }}
+                      >
+                        Reset Filters
+                      </button>
+                    )}
+                  </div>
+                ) : printerDensity === "compact" ? (
+                  /* COMPACT MODE: Single-Line Rows for High-Volume Fleets */
+                  <div className="printers-compact-list">
+                    {filteredPrinters.map((printer) => {
+                      const printerKey = printer.systemName || printer.name;
                       const isDefaultPr =
-                        selectedPrinter.isDefault ||
-                        defaultPrinterName === selectedPrinter.name;
+                        printer.isDefault || defaultPrinterName === printer.name;
+                      const isSystemDef = detectedPrinters.find(
+                        (p) => p.name === printer.name
+                      )?.isDefault;
+                      const testStatus = testPrintStatus[printerKey];
+
+                      const isBwSelected = printer.capabilities.some(
+                        (c) =>
+                          c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
+                      );
+                      const isColorSelected = printer.capabilities.some(
+                        (c) => c.toLowerCase() === "color"
+                      );
 
                       return (
-                        <div className="printer-detail-card">
-                          {/* Top Detail Header with Actions */}
-                          <div className="detail-card-header">
-                            <div className="detail-title-group">
-                              <div className="detail-name-row">
-                                <Printer size={20} className="detail-icon" />
-                                <h3 className="detail-printer-title">
-                                  {selectedPrinter.nickname || selectedPrinter.name}
-                                </h3>
-                                {isDefaultPr && (
-                                  <span className="badge-default-active">
-                                    ★ Default
-                                  </span>
-                                )}
-                                {isSystemDef && (
-                                  <span className="badge-os-default">
-                                    OS Default
-                                  </span>
-                                )}
-                              </div>
-                              <span className="detail-system-name">
-                                Queue: {selectedPrinter.systemName || selectedPrinter.name}
-                              </span>
+                        <div
+                          key={printerKey}
+                          className={`printer-compact-row ${
+                            !printer.enabled ? "is-disabled" : ""
+                          }`}
+                        >
+                          <div className="compact-left">
+                            <span
+                              className={`status-indicator-dot ${
+                                printer.enabled ? "dot-online" : "dot-disabled"
+                              }`}
+                              title={
+                                printer.enabled
+                                  ? "Printer Online & Active"
+                                  : "Printer Disabled"
+                              }
+                            />
+
+                            <div
+                              className="compact-name-wrap"
+                              data-vk-field={`nickname:${printerKey}`}
+                            >
+                              <input
+                                type="text"
+                                className="compact-name-input"
+                                style={{
+                                  width: `${Math.max(
+                                    (printer.nickname || printer.name).length + 3,
+                                    26
+                                  )}ch`,
+                                  maxWidth: "100%",
+                                }}
+                                value={printer.nickname ?? printer.name}
+                                onChange={(e) =>
+                                  handleUpdatePrinterField(printerKey, {
+                                    nickname: e.target.value,
+                                  })
+                                }
+                                placeholder="Printer Name"
+                                title={printer.nickname ?? printer.name}
+                              />
+                              <button
+                                type="button"
+                                className="bento-vk-btn"
+                                onClick={() =>
+                                  setActiveVk(
+                                    activeVk?.field ===
+                                      `nickname:${printerKey}`
+                                      ? null
+                                      : {
+                                          label: "Printer Nickname",
+                                          field: `nickname:${printerKey}`,
+                                          type: "text",
+                                        }
+                                  )
+                                }
+                                title="On-Screen Keyboard"
+                              >
+                                <KeyboardIcon size={12} />
+                              </button>
                             </div>
 
-                            <div className="detail-actions-group">
+                            {/* Only show Queue badge if nickname is different from systemName/name */}
+                            {Boolean(
+                              printer.nickname &&
+                                printer.nickname !== (printer.systemName || printer.name)
+                            ) && (
+                              <span
+                                className="compact-queue-badge"
+                                title={`Queue: ${
+                                  printer.systemName || printer.name
+                                }`}
+                              >
+                                {printer.systemName || printer.name}
+                              </span>
+                            )}
+
+                            {isDefaultPr && (
+                              <span className="bento-badge-default">
+                                ★ Default
+                              </span>
+                            )}
+                            {isSystemDef && (
+                              <span className="bento-badge-os-default">
+                                OS Default
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="compact-center">
+                            <div className="compact-pills-group">
                               <button
                                 type="button"
-                                className="btn-secondary btn-detail-action"
+                                disabled={!printer.enabled}
+                                className={`compact-pill ${
+                                  isBwSelected ? "active" : ""
+                                }`}
                                 onClick={() =>
-                                  handleSetDefaultPrinter(selectedPrinter.name)
+                                  handleTogglePrintMode(printerKey, "B&W")
                                 }
+                                title="Toggle B&W"
                               >
-                                {isDefaultPr
-                                  ? "★ Default Selected"
-                                  : "Set as Default"}
+                                {isBwSelected && <Check size={10} />}
+                                <span>B&amp;W</span>
                               </button>
 
                               <button
                                 type="button"
-                                className="btn-secondary btn-detail-action"
-                                onClick={() => handleTestPrint(selectedPrinter)}
-                                disabled={Boolean(testStatus)}
+                                disabled={!printer.enabled}
+                                className={`compact-pill ${
+                                  isColorSelected ? "active" : ""
+                                }`}
+                                onClick={() =>
+                                  handleTogglePrintMode(printerKey, "Color")
+                                }
+                                title="Toggle Color"
                               >
-                                <Printer size={14} />
-                                <span>{testStatus || "Test Print"}</span>
+                                {isColorSelected && <Check size={10} />}
+                                <span>Color</span>
                               </button>
+                            </div>
+
+                            <div className="compact-pills-group compact-trays">
+                              {["A4", "Legal", "Letter", "A3"].map(
+                                (size) => {
+                                  const isChecked =
+                                    printer.capabilities.includes(size);
+                                  return (
+                                    <button
+                                      key={size}
+                                      type="button"
+                                      disabled={!printer.enabled}
+                                      className={`compact-tray-chip ${
+                                        isChecked ? "active" : ""
+                                      }`}
+                                      onClick={() =>
+                                        handleTogglePaperTray(printerKey, size)
+                                      }
+                                      title={`Toggle ${size}`}
+                                    >
+                                      {isChecked && <Check size={9} />}
+                                      <span>{size}</span>
+                                    </button>
+                                  );
+                                }
+                              )}
                             </div>
                           </div>
 
-                          {/* Configuration Form */}
-                          <div className="detail-form-body">
-                            {/* Enable / Disable Toggle Switch */}
-                            <div className="detail-form-row detail-switch-row">
-                              <div>
-                                <span className="detail-row-label">
-                                  Printer Routing Status
-                                </span>
-                                <p className="detail-row-desc">
-                                  Enable or disable this printer for kiosk jobs.
-                                </p>
+                          <div className="compact-right">
+                            {!isDefaultPr && printer.enabled && (
+                              <button
+                                type="button"
+                                className="bento-action-btn compact-action-btn"
+                                onClick={() =>
+                                  handleSetDefaultPrinter(printer.name)
+                                }
+                                title="Set as primary default"
+                              >
+                                Make Default
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              className="bento-action-btn bento-test-btn compact-action-btn"
+                              onClick={() => handleTestPrint(printer)}
+                              disabled={
+                                Boolean(testStatus) || !printer.enabled
+                              }
+                              title="Send test print"
+                            >
+                              <Printer size={12} />
+                              <span>{testStatus || "Test"}</span>
+                            </button>
+
+                            <label
+                              className="bento-switch compact-switch"
+                              title={
+                                printer.enabled
+                                  ? "Disable printer"
+                                  : "Enable printer"
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                checked={printer.enabled}
+                                onChange={(e) =>
+                                  handleUpdatePrinterField(printerKey, {
+                                    enabled: e.target.checked,
+                                  })
+                                }
+                              />
+                              <span className="bento-switch-slider" />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* COMFORTABLE MODE: Full-width Bento Cards with Complete Names */
+                  <div className="printers-bento-list">
+                    {filteredPrinters.map((printer) => {
+                      const printerKey = printer.systemName || printer.name;
+                      const isDefaultPr =
+                        printer.isDefault || defaultPrinterName === printer.name;
+                      const isSystemDef = detectedPrinters.find(
+                        (p) => p.name === printer.name
+                      )?.isDefault;
+                      const testStatus = testPrintStatus[printerKey];
+
+                      const isBwSelected = printer.capabilities.some(
+                        (c) =>
+                          c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
+                      );
+                      const isColorSelected = printer.capabilities.some(
+                        (c) => c.toLowerCase() === "color"
+                      );
+
+                      return (
+                        <div
+                          key={printerKey}
+                          className={`printer-bento-card ${
+                            !printer.enabled ? "is-disabled" : ""
+                          }`}
+                        >
+                          {/* Row Header: Full Model Name, Badges & Actions */}
+                          <div className="bento-card-header">
+                            <div className="bento-header-left">
+                              <span
+                                className={`status-indicator-dot ${
+                                  printer.enabled ? "dot-online" : "dot-disabled"
+                                }`}
+                                title={
+                                  printer.enabled
+                                    ? "Printer Online & Active"
+                                    : "Printer Disabled"
+                                }
+                              />
+
+                              {/* Auto-Sizing Full Model Name */}
+                              <div
+                                className="bento-nickname-wrap"
+                                data-vk-field={`nickname:${printerKey}`}
+                              >
+                                <input
+                                  type="text"
+                                  className="bento-nickname-input"
+                                  style={{
+                                    width: `${Math.max(
+                                      (printer.nickname || printer.name).length + 3,
+                                      26
+                                    )}ch`,
+                                    maxWidth: "100%",
+                                  }}
+                                  value={printer.nickname ?? printer.name}
+                                  onChange={(e) =>
+                                    handleUpdatePrinterField(printerKey, {
+                                      nickname: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Printer Name"
+                                  title="Click to rename"
+                                />
+                                <button
+                                  type="button"
+                                  className="bento-vk-btn"
+                                  onClick={() =>
+                                    setActiveVk(
+                                      activeVk?.field ===
+                                        `nickname:${printerKey}`
+                                        ? null
+                                        : {
+                                            label: "Printer Nickname",
+                                            field: `nickname:${printerKey}`,
+                                            type: "text",
+                                          }
+                                    )
+                                  }
+                                  title="On-Screen Keyboard"
+                                >
+                                  <KeyboardIcon size={13} />
+                                </button>
                               </div>
-                              <label className="toggle-switch-label">
+
+                              {/* Queue Driver Badge - only show if nickname is different from systemName/name */}
+                              {Boolean(
+                                printer.nickname &&
+                                  printer.nickname !== (printer.systemName || printer.name)
+                              ) && (
+                                <span
+                                  className="bento-queue-badge"
+                                  title={`System Queue: ${
+                                    printer.systemName || printer.name
+                                  }`}
+                                >
+                                  Queue: {printer.systemName || printer.name}
+                                </span>
+                              )}
+
+                              {/* Default / OS Default Badges */}
+                              {isDefaultPr && (
+                                <span className="bento-badge-default">
+                                  ★ Default
+                                </span>
+                              )}
+                              {isSystemDef && (
+                                <span className="bento-badge-os-default">
+                                  OS Default
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Header Right Actions */}
+                            <div className="bento-header-right">
+                              {!isDefaultPr && printer.enabled && (
+                                <button
+                                  type="button"
+                                  className="bento-action-btn"
+                                  onClick={() =>
+                                    handleSetDefaultPrinter(printer.name)
+                                  }
+                                  title="Set as primary default printer"
+                                >
+                                  Make Default
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                className="bento-action-btn bento-test-btn"
+                                onClick={() => handleTestPrint(printer)}
+                                disabled={
+                                  Boolean(testStatus) || !printer.enabled
+                                }
+                                title="Send test print"
+                              >
+                                <Printer size={13} />
+                                <span>{testStatus || "Test Print"}</span>
+                              </button>
+
+                              <label
+                                className="bento-switch"
+                                title={
+                                  printer.enabled
+                                    ? "Disable this printer"
+                                    : "Enable this printer"
+                                }
+                              >
                                 <input
                                   type="checkbox"
-                                  checked={selectedPrinter.enabled}
+                                  checked={printer.enabled}
                                   onChange={(e) =>
                                     handleUpdatePrinterField(printerKey, {
                                       enabled: e.target.checked,
                                     })
                                   }
                                 />
-                                <span className="toggle-switch-slider" />
-                                <span className="toggle-switch-text">
-                                  {selectedPrinter.enabled
-                                    ? "Enabled"
-                                    : "Disabled"}
-                                </span>
+                                <span className="bento-switch-slider" />
                               </label>
                             </div>
+                          </div>
 
-                            {/* Nickname & Pool Row */}
-                            <div className="detail-inputs-grid">
-                              <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label className="form-label">
-                                  Display Nickname
-                                </label>
-                                <div
-                                  className="input-with-vk"
-                                  data-vk-field={`nickname:${printerKey}`}
+                          {/* Hairline Divider */}
+                          <div className="bento-card-divider" />
+
+                          {/* Row Body: Direct 2-Column Capability Grid */}
+                          <div className="bento-card-body">
+                            {/* Column 1: Print Modes */}
+                            <div className="bento-group">
+                              <span className="bento-group-label">
+                                Print Modes
+                              </span>
+                              <div className="bento-pills-row">
+                                <button
+                                  type="button"
+                                  disabled={!printer.enabled}
+                                  className={`bento-mode-pill ${
+                                    isBwSelected ? "active" : ""
+                                  }`}
+                                  onClick={() =>
+                                    handleTogglePrintMode(printerKey, "B&W")
+                                  }
                                 >
-                                  <input
-                                    type="text"
-                                    value={
-                                      selectedPrinter.nickname ??
-                                      selectedPrinter.name
-                                    }
-                                    onChange={(e) =>
-                                      handleUpdatePrinterField(printerKey, {
-                                        nickname: e.target.value,
-                                      })
-                                    }
-                                    placeholder="e.g. Counter B&W Laser"
-                                  />
-                                  <button
-                                    type="button"
-                                    className="input-vk-btn"
-                                    onClick={() =>
-                                      setActiveVk(
-                                        activeVk?.field === `nickname:${printerKey}`
-                                          ? null
-                                          : {
-                                              label: "Printer Nickname",
-                                              field: `nickname:${printerKey}`,
-                                              type: "text",
-                                            }
-                                      )
-                                    }
-                                    title="Toggle On-Screen Keyboard"
-                                  >
-                                    <KeyboardIcon size={14} />
-                                  </button>
-                                </div>
-                              </div>
+                                  <div className="bento-pill-check">
+                                    {isBwSelected && <Check size={12} />}
+                                  </div>
+                                  <span className="bento-pill-text">
+                                    Black &amp; White
+                                  </span>
+                                </button>
 
-                              <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label className="form-label">
-                                  Pool Assignment
-                                </label>
-                                <div className="detail-select-wrap">
-                                  <select
-                                    value={selectedPrinter.pool || "default"}
-                                    onChange={(e) =>
-                                      handleUpdatePrinterField(printerKey, {
-                                        pool: e.target.value as PrinterPoolType,
-                                      })
-                                    }
-                                    className="detail-select"
-                                  >
-                                    <option value="bw">
-                                      B&amp;W Pool (Monochrome)
-                                    </option>
-                                    <option value="color">Color Pool</option>
-                                    <option value="large_format">
-                                      Large Format Pool (A3 / Legal)
-                                    </option>
-                                    <option value="default">
-                                      Default Pool (General Routing)
-                                    </option>
-                                  </select>
-                                  <ChevronDown
-                                    size={14}
-                                    className="detail-select-arrow"
-                                  />
-                                </div>
+                                <button
+                                  type="button"
+                                  disabled={!printer.enabled}
+                                  className={`bento-mode-pill ${
+                                    isColorSelected ? "active" : ""
+                                  }`}
+                                  onClick={() =>
+                                    handleTogglePrintMode(printerKey, "Color")
+                                  }
+                                >
+                                  <div className="bento-pill-check">
+                                    {isColorSelected && <Check size={12} />}
+                                  </div>
+                                  <span className="bento-pill-text">
+                                    Color &amp; Photos
+                                  </span>
+                                </button>
                               </div>
                             </div>
 
-                            {/* Capabilities Tags */}
-                            <div className="detail-capabilities-section">
-                              <label className="form-label">
-                                Capability Tags (Smart Routing Attributes)
-                              </label>
-                              <div className="detail-caps-chips">
-                                {CAPABILITY_OPTIONS.map((cap) => {
-                                  const active =
-                                    selectedPrinter.capabilities?.includes(cap);
-                                  return (
-                                    <button
-                                      key={cap}
-                                      type="button"
-                                      onClick={() =>
-                                        handleToggleCapability(printerKey, cap)
-                                      }
-                                      className={`cap-chip-btn ${active ? "active" : ""}`}
-                                    >
-                                      <span>{cap}</span>
-                                      {active && <Check size={13} />}
-                                    </button>
-                                  );
-                                })}
+                            {/* Column 2: Paper Trays */}
+                            <div className="bento-group">
+                              <span className="bento-group-label">
+                                Paper Trays
+                              </span>
+                              <div className="bento-pills-row">
+                                {["A4", "Legal", "Letter", "A3"].map(
+                                  (size) => {
+                                    const isChecked =
+                                      printer.capabilities.includes(size);
+                                    return (
+                                      <button
+                                        key={size}
+                                        type="button"
+                                        disabled={!printer.enabled}
+                                        className={`bento-tray-pill ${
+                                          isChecked ? "active" : ""
+                                        }`}
+                                        onClick={() =>
+                                          handleTogglePaperTray(printerKey, size)
+                                        }
+                                      >
+                                        <div className="bento-tray-check">
+                                          {isChecked && <Check size={11} />}
+                                        </div>
+                                        <span>{size}</span>
+                                      </button>
+                                    );
+                                  }
+                                )}
                               </div>
                             </div>
                           </div>
                         </div>
                       );
-                    })()}
+                    })}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
+                )}              </div>
+            );
+          })()}
           {/* TAB 2: PRICING & PAPER SIZES */}
           {activeTab === "pricing" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1677,7 +2194,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                           gap: 8,
                         }}
                       >
-                        <span>⚡ Rush Hour Auto-Print</span>
+                        <span>Rush Hour Auto-Print</span>
                         {rushHourAutoPrint && (
                           <span
                             style={{
