@@ -358,6 +358,9 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
     systemName: string,
     updates: Partial<ConfiguredPrinter>
   ) => {
+    if (updates.enabled === false && activeVk?.field === `nickname:${systemName}`) {
+      setActiveVk(null);
+    }
     setConfiguredPrinters((prev) =>
       prev.map((p) =>
         p.systemName === systemName || p.name === systemName
@@ -484,7 +487,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         if (reconnected) updated = reconnected;
       }
 
-      onStateUpdated(updated);
+      onStateUpdated({ ...updated, configuredPrinters });
       setSaveSuccessMessage("Settings saved successfully.");
       setTimeout(() => setSaveSuccessMessage(""), 4000);
     } catch (err) {
@@ -1380,12 +1383,13 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                             />
 
                             <div
-                              className="compact-name-wrap"
+                              className={`compact-name-wrap ${!printer.enabled ? "disabled" : ""}`}
                               data-vk-field={`nickname:${printerKey}`}
                             >
                               <input
                                 type="text"
                                 className="compact-name-input"
+                                disabled={!printer.enabled}
                                 style={{
                                   width: `${Math.max(
                                     (printer.nickname || printer.name).length + 3,
@@ -1400,12 +1404,18 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                                   })
                                 }
                                 placeholder="Printer Name"
-                                title={printer.nickname ?? printer.name}
+                                title={
+                                  printer.enabled
+                                    ? printer.nickname ?? printer.name
+                                    : "Printer Disabled"
+                                }
                               />
                               <button
                                 type="button"
                                 className="bento-vk-btn"
-                                onClick={() =>
+                                disabled={!printer.enabled}
+                                onClick={() => {
+                                  if (!printer.enabled) return;
                                   setActiveVk(
                                     activeVk?.field ===
                                       `nickname:${printerKey}`
@@ -1415,9 +1425,13 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                                           field: `nickname:${printerKey}`,
                                           type: "text",
                                         }
-                                  )
+                                  );
+                                }}
+                                title={
+                                  printer.enabled
+                                    ? "On-Screen Keyboard"
+                                    : "Printer Disabled"
                                 }
-                                title="On-Screen Keyboard"
                               >
                                 <KeyboardIcon size={12} />
                               </button>
@@ -1604,12 +1618,13 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
 
                               {/* Auto-Sizing Full Model Name */}
                               <div
-                                className="bento-nickname-wrap"
+                                className={`bento-nickname-wrap ${!printer.enabled ? "disabled" : ""}`}
                                 data-vk-field={`nickname:${printerKey}`}
                               >
                                 <input
                                   type="text"
                                   className="bento-nickname-input"
+                                  disabled={!printer.enabled}
                                   style={{
                                     width: `${Math.max(
                                       (printer.nickname || printer.name).length + 3,
@@ -1624,12 +1639,18 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                                     })
                                   }
                                   placeholder="Printer Name"
-                                  title="Click to rename"
+                                  title={
+                                    printer.enabled
+                                      ? "Click to rename"
+                                      : "Printer Disabled"
+                                  }
                                 />
                                 <button
                                   type="button"
                                   className="bento-vk-btn"
-                                  onClick={() =>
+                                  disabled={!printer.enabled}
+                                  onClick={() => {
+                                    if (!printer.enabled) return;
                                     setActiveVk(
                                       activeVk?.field ===
                                         `nickname:${printerKey}`
@@ -1639,9 +1660,13 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                                             field: `nickname:${printerKey}`,
                                             type: "text",
                                           }
-                                    )
+                                    );
+                                  }}
+                                  title={
+                                    printer.enabled
+                                      ? "On-Screen Keyboard"
+                                      : "Printer Disabled"
                                   }
-                                  title="On-Screen Keyboard"
                                 >
                                   <KeyboardIcon size={13} />
                                 </button>

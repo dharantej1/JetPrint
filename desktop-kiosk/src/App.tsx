@@ -6,6 +6,7 @@ import {
   cancelJob,
   checkForAppUpdate,
   getAppVersion,
+  getConfiguredPrinters,
   getKioskState,
   isFullscreen as checkIsFullscreen,
   listJobs,
@@ -55,76 +56,89 @@ const formatPrinterFleetStatus = (
   configuredPrinters?: ConfiguredPrinter[],
   defaultPrinter?: string | null
 ): { label: string; tooltip?: string } => {
-  if (!configuredPrinters || configuredPrinters.length === 0) {
-    if (defaultPrinter) {
-      return { label: `Printer: ${defaultPrinter}` };
+  if (configuredPrinters) {
+    if (configuredPrinters.length === 0) {
+      return { label: "No Printers Configured" };
     }
-    return { label: "No Printers Configured" };
-  }
 
-  const enabledPrinters = configuredPrinters.filter((p) => p.enabled);
-  if (enabledPrinters.length === 0) {
-    return {
-      label: `${configuredPrinters.length} Printers (All Offline)`,
-      tooltip: configuredPrinters
-        .map((p) => `${p.nickname || p.name} (Disabled)`)
-        .join("\n"),
-    };
-  }
+    const enabledPrinters = configuredPrinters.filter((p) => p.enabled);
+    if (enabledPrinters.length === 0) {
+      if (configuredPrinters.length === 1) {
+        const single = configuredPrinters[0];
+        const singleName = single.nickname || single.name;
+        return {
+          label: `Printer: ${singleName} (Offline)`,
+          tooltip: `• ${singleName} (Disabled)`,
+        };
+      }
+      return {
+        label: `${configuredPrinters.length} Printers (All Offline)`,
+        tooltip: configuredPrinters
+          .map((p) => `• ${p.nickname || p.name} (Disabled)`)
+          .join("\n"),
+      };
+    }
 
-  const printerNamesTooltip = enabledPrinters
-    .map((p) => {
-      const name = p.nickname ? `${p.nickname} (${p.name})` : p.name;
-      const caps =
-        p.capabilities.length > 0 ? ` [${p.capabilities.join(", ")}]` : "";
-      const isDefault = p.isDefault ?? (p as unknown as { is_default?: boolean }).is_default;
-      return `• ${name}${caps}${isDefault ? " [Default]" : ""}`;
-    })
-    .join("\n");
+    const printerNamesTooltip = enabledPrinters
+      .map((p) => {
+        const name = p.nickname ? `${p.nickname} (${p.name})` : p.name;
+        const caps =
+          p.capabilities.length > 0 ? ` [${p.capabilities.join(", ")}]` : "";
+        const isDefault =
+          p.isDefault ?? (p as unknown as { is_default?: boolean }).is_default;
+        return `• ${name}${caps}${isDefault ? " [Default]" : ""}`;
+      })
+      .join("\n");
 
-  if (enabledPrinters.length === 1) {
-    const single = enabledPrinters[0];
-    return {
-      label: `Printer: ${single.nickname || single.name}`,
-      tooltip: printerNamesTooltip,
-    };
-  }
+    if (enabledPrinters.length === 1) {
+      const single = enabledPrinters[0];
+      return {
+        label: `Printer: ${single.nickname || single.name}`,
+        tooltip: printerNamesTooltip,
+      };
+    }
 
-  // Multiple enabled printers
-  let bwCount = 0;
-  let colorCount = 0;
-  for (const p of enabledPrinters) {
-    const isBw = p.capabilities.some(
-      (c) => c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
-    );
-    const isColor = p.capabilities.some(
-      (c) => c.toLowerCase() === "color" || c.toLowerCase() === "colour"
-    );
-    if (isBw) bwCount++;
-    if (isColor) colorCount++;
-    if (!isBw && !isColor) {
-      if (p.pool === "color") colorCount++;
-      else bwCount++;
+    // Multiple enabled printers
+    let bwCount = 0;
+    let colorCount = 0;
+    for (const p of enabledPrinters) {
+      const isBw = p.capabilities.some(
+        (c) => c.toLowerCase() === "b&w" || c.toLowerCase() === "bw"
+      );
+      const isColor = p.capabilities.some(
+        (c) => c.toLowerCase() === "color" || c.toLowerCase() === "colour"
+      );
+      if (isBw) bwCount++;
+      if (isColor) colorCount++;
+      if (!isBw && !isColor) {
+        if (p.pool === "color") colorCount++;
+        else bwCount++;
+      }
+    }
+
+    const total = enabledPrinters.length;
+    if (bwCount > 0 && colorCount > 0) {
+      return {
+        label: `${total} Printers Ready (${bwCount} B&W, ${colorCount} Color)`,
+        tooltip: printerNamesTooltip,
+      };
+    } else if (colorCount > 0 && bwCount === 0) {
+      return {
+        label: `${total} Color Printer${total > 1 ? "s" : ""} Ready`,
+        tooltip: printerNamesTooltip,
+      };
+    } else {
+      return {
+        label: `${total} B&W Printer${total > 1 ? "s" : ""} Ready`,
+        tooltip: printerNamesTooltip,
+      };
     }
   }
 
-  const total = enabledPrinters.length;
-  if (bwCount > 0 && colorCount > 0) {
-    return {
-      label: `${total} Printers Ready (${bwCount} B&W, ${colorCount} Color)`,
-      tooltip: printerNamesTooltip,
-    };
-  } else if (colorCount > 0 && bwCount === 0) {
-    return {
-      label: `${total} Color Printer${total > 1 ? "s" : ""} Ready`,
-      tooltip: printerNamesTooltip,
-    };
-  } else {
-    return {
-      label: `${total} B&W Printer${total > 1 ? "s" : ""} Ready`,
-      tooltip: printerNamesTooltip,
-    };
+  if (defaultPrinter) {
+    return { label: `Printer: ${defaultPrinter}` };
   }
+  return { label: "No Printers Configured" };
 };
 
 const KioskApp: React.FC = () => {
@@ -375,8 +389,11 @@ const KioskApp: React.FC = () => {
 
   const loadState = useCallback(async () => {
     try {
-      const state = await getKioskState();
-      setKioskState(state);
+      const [state, configuredPrinters] = await Promise.all([
+        getKioskState(),
+        getConfiguredPrinters().catch(() => [] as ConfiguredPrinter[]),
+      ]);
+      setKioskState((_prev) => ({ ...state, configuredPrinters }));
       const isRushActive =
         state.kioskMode === "owner" && Boolean(state.rushMode || state.rushHourAutoPrint);
       setRushHourEnabled(isRushActive);
