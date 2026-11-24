@@ -54,6 +54,7 @@ export function createRelayServer(
         kiosk?.supportedPaperSizes && kiosk.supportedPaperSizes.length > 0
           ? kiosk.supportedPaperSizes
           : ['A4'];
+      const supportsColor = kiosk?.supportsColor ?? true;
       res.json({
         machine_id: kiosk?.machineId ?? machineId,
         online: kiosk?.online ?? false,
@@ -61,6 +62,8 @@ export function createRelayServer(
         dev_mode: config.devMode,
         supportedPaperSizes,
         supported_paper_sizes: supportedPaperSizes,
+        supportsColor,
+        supports_color: supportsColor,
       });
       return;
     }

@@ -139,6 +139,7 @@ export function createApiRouter(
       kiosk.supportedPaperSizes && kiosk.supportedPaperSizes.length > 0
         ? kiosk.supportedPaperSizes
         : ['A4'];
+    const supportsColor = kiosk.supportsColor ?? true;
     res.json({
       machine_id: kiosk.machineId,
       online: kiosk.online,
@@ -146,6 +147,8 @@ export function createApiRouter(
       dev_mode: config.devMode,
       supportedPaperSizes,
       supported_paper_sizes: supportedPaperSizes,
+      supportsColor,
+      supports_color: supportsColor,
     });
   };
 
@@ -200,7 +203,7 @@ export function createApiRouter(
   });
 
   router.post(
-    '/jobs',
+    ['/jobs', '/upload'],
     upload.array('files', 10),
     async (req: Request, res: Response) => {
       try {
@@ -215,6 +218,8 @@ export function createApiRouter(
           res.status(404).json({ error: 'Target kiosk machine_id not found' });
           return;
         }
+
+        const kioskSupportsColor = kiosk.supportsColor !== false;
 
         const uploadedFiles = (req.files as Express.Multer.File[] | undefined) ?? [];
         if (uploadedFiles.length === 0) {
@@ -236,10 +241,11 @@ export function createApiRouter(
           Number.isFinite(rawCopies) && rawCopies >= 1
             ? Math.min(100, Math.floor(rawCopies))
             : 1;
-        const color =
+        const rawColor =
           req.body?.color === true ||
           req.body?.color === 'true' ||
           req.body?.color === '1';
+        const color = kioskSupportsColor ? rawColor : false;
         const rawPaper = req.body?.paper_size ?? req.body?.paperSize;
         const fallbackPaperSize =
           typeof rawPaper === 'string' && rawPaper.trim()
@@ -281,6 +287,9 @@ export function createApiRouter(
             color,
             paperSize: fallbackPaperSize,
           });
+          if (!kioskSupportsColor) {
+            settings.color = false;
+          }
           const selectedPages = countSelectedPages(settings.pageRange, pageCount);
           const sheetsPerCopy = Math.ceil(selectedPages / settings.pagesPerSheet);
           const billableSheets = sheetsPerCopy * settings.copies;
@@ -367,6 +376,8 @@ export function createApiRouter(
           pricing: job.pricingSnapshot,
           supportedPaperSizes: kiosk.supportedPaperSizes ?? ['A4'],
           supported_paper_sizes: kiosk.supportedPaperSizes ?? ['A4'],
+          supportsColor: kioskSupportsColor,
+          supports_color: kioskSupportsColor,
           files: job.files.map((f) => ({
             file_id: f.fileId,
             filename: f.originalName,

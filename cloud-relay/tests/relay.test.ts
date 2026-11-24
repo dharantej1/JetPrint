@@ -1445,4 +1445,171 @@ describe('JetPrint Cloud Relay', () => {
 
     kioskWs.close();
   });
+
+  it('supports conditional color printing availability: registers kiosk with supportsColor: false, returns in info and upload, and enforces B&W pricing', async () => {
+    const ws = await connectWs(wsUrl);
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'bw-only-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+        supportsColor: false,
+      })
+    );
+    const reg = await nextMessage<{
+      type: string;
+      machine_id: string;
+      auth_token: string;
+      supportsColor?: boolean;
+      supports_color?: boolean;
+    }>(ws);
+
+    expect(reg.type).toBe('registered');
+    expect(reg.machine_id).toBe('bw-only-kiosk');
+    expect(reg.supportsColor).toBe(false);
+    expect(reg.supports_color).toBe(false);
+
+    // 1. Verify GET /api/machines/:machineId kiosk info endpoint
+    const machineRes = await fetch(`${baseUrl}/api/machines/bw-only-kiosk`);
+    expect(machineRes.status).toBe(200);
+    const machineData = (await machineRes.json()) as {
+      supportsColor: boolean;
+      supports_color: boolean;
+      pricing: { bwPerPagePaise: number; colorPerPagePaise: number };
+    };
+    expect(machineData.supportsColor).toBe(false);
+    expect(machineData.supports_color).toBe(false);
+
+    // 2. Verify GET /upload (Accept: application/json)
+    const uploadRes = await fetch(`${baseUrl}/upload?machine_id=bw-only-kiosk`, {
+      headers: { Accept: 'application/json' },
+    });
+    expect(uploadRes.status).toBe(200);
+    const uploadData = (await uploadRes.json()) as {
+      supportsColor: boolean;
+      supports_color: boolean;
+    };
+    expect(uploadData.supportsColor).toBe(false);
+    expect(uploadData.supports_color).toBe(false);
+
+    // 3. Verify GET /api/upload?machine_id=bw-only-kiosk
+    const apiUploadRes = await fetch(`${baseUrl}/api/upload?machine_id=bw-only-kiosk`);
+    expect(apiUploadRes.status).toBe(200);
+    const apiUploadData = (await apiUploadRes.json()) as {
+      supportsColor: boolean;
+      supports_color: boolean;
+    };
+    expect(apiUploadData.supportsColor).toBe(false);
+    expect(apiUploadData.supports_color).toBe(false);
+
+    // 4. Upload file requesting color: true -> must enforce color: false and B&W pricing
+    const testPdf = await makeTestPdf(2);
+    const form = new FormData();
+    form.append('machine_id', 'bw-only-kiosk');
+    form.append('color', 'true'); // Customer requested color
+    form.append(
+      'per_file_settings',
+      JSON.stringify([
+        {
+          copies: 1,
+          color: true,
+          pageRange: 'all',
+        },
+      ])
+    );
+    form.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'color-attempt.pdf'
+    );
+
+    const postJobRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: form,
+    });
+    expect(postJobRes.status).toBe(201);
+    const jobData = (await postJobRes.json()) as {
+      job_id: string;
+      amount_paise: number;
+      print_settings: { color: boolean };
+      files: Array<{ settings: { color: boolean }; amount_paise: number }>;
+      supportsColor: boolean;
+      supports_color: boolean;
+    };
+
+    // Color enforced to false
+    expect(jobData.print_settings.color).toBe(false);
+    expect(jobData.files[0].settings.color).toBe(false);
+    expect(jobData.supportsColor).toBe(false);
+    expect(jobData.supports_color).toBe(false);
+    // Calculated at B&W rate: 2 pages * 200 = 400 paise (NOT 2 * 1000 = 2000)
+    expect(jobData.amount_paise).toBe(400);
+    expect(jobData.files[0].amount_paise).toBe(400);
+
+    // 5. Test POST /api/upload alias also works and enforces B&W
+    const formUploadAlias = new FormData();
+    formUploadAlias.append('machine_id', 'bw-only-kiosk');
+    formUploadAlias.append('color', 'true');
+    formUploadAlias.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'color-alias.pdf'
+    );
+    const postUploadAliasRes = await fetch(`${baseUrl}/api/upload`, {
+      method: 'POST',
+      body: formUploadAlias,
+    });
+    expect(postUploadAliasRes.status).toBe(201);
+    const aliasJobData = (await postUploadAliasRes.json()) as {
+      amount_paise: number;
+      print_settings: { color: boolean };
+      files: Array<{ settings: { color: boolean } }>;
+    };
+    expect(aliasJobData.print_settings.color).toBe(false);
+    expect(aliasJobData.files[0].settings.color).toBe(false);
+    expect(aliasJobData.amount_paise).toBe(400);
+
+    // 6. Test default kiosk supportsColor defaults to true
+    ws.send(
+      JSON.stringify({
+        type: 'register',
+        machine_id: 'default-color-kiosk',
+        pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000 },
+      })
+    );
+    const defaultReg = await nextMessage<{
+      type: string;
+      machine_id: string;
+      supportsColor?: boolean;
+    }>(ws);
+    expect(defaultReg.supportsColor).toBe(true);
+
+    const defaultInfoRes = await fetch(`${baseUrl}/api/machines/default-color-kiosk`);
+    const defaultInfo = (await defaultInfoRes.json()) as { supportsColor: boolean };
+    expect(defaultInfo.supportsColor).toBe(true);
+
+    // When supportsColor: true, color request is honored and priced at colorPerPagePaise
+    const formColorAllowed = new FormData();
+    formColorAllowed.append('machine_id', 'default-color-kiosk');
+    formColorAllowed.append('color', 'true');
+    formColorAllowed.append(
+      'files',
+      new Blob([new Uint8Array(testPdf)], { type: 'application/pdf' }),
+      'color-allowed.pdf'
+    );
+    const colorAllowedRes = await fetch(`${baseUrl}/api/jobs`, {
+      method: 'POST',
+      body: formColorAllowed,
+    });
+    expect(colorAllowedRes.status).toBe(201);
+    const colorAllowedJob = (await colorAllowedRes.json()) as {
+      amount_paise: number;
+      print_settings: { color: boolean };
+    };
+    expect(colorAllowedJob.print_settings.color).toBe(true);
+    // 2 pages * 1000 = 2000 paise
+    expect(colorAllowedJob.amount_paise).toBe(2000);
+
+    ws.close();
+  });
 });

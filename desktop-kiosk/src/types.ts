@@ -45,6 +45,7 @@ export interface KioskState {
   printerPools?: PrinterPoolConfig[];
   rushMode?: boolean;
   rushHourAutoPrint?: boolean;
+  supportsColor?: boolean;
 }
 
 export interface CompleteFirstRunResult {
@@ -62,7 +63,10 @@ export interface UpdateSettingsInput {
   configuredPrinters?: ConfiguredPrinter[];
   rushMode?: boolean;
   rushHourAutoPrint?: boolean;
+  supportsColor?: boolean;
 }
+
+export type UpdateSettingsPayload = UpdateSettingsInput;
 
 export interface PrinterInfo {
   name: string;

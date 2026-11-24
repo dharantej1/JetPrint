@@ -70,8 +70,9 @@ export class RelayStore {
 
   registerKiosk(
     preferredMachineId?: string,
-    pricingPatch?: Partial<PricingConfig>,
-    supportedPaperSizes?: string[]
+    pricingPatch?: Partial<PricingConfig> & { supportsColor?: boolean; supports_color?: boolean },
+    supportedPaperSizes?: string[],
+    supportsColor?: boolean
   ): KioskRecord {
     const cleanPreferred = preferredMachineId?.trim();
     let machineId: string;
@@ -90,6 +91,16 @@ export class RelayStore {
       ? this.normalizePaperSizes(supportedPaperSizes)
       : existing?.supportedPaperSizes ?? ['A4'];
 
+    const patchColor = (pricingPatch as any)?.supportsColor ?? (pricingPatch as any)?.supports_color;
+    const resolvedSupportsColor =
+      supportsColor !== undefined
+        ? supportsColor
+        : patchColor !== undefined
+        ? patchColor
+        : existing?.supportsColor !== undefined
+        ? existing.supportsColor
+        : true;
+
     const record: KioskRecord = {
       machineId,
       authToken: `tok_${crypto.randomBytes(24).toString('hex')}`,
@@ -98,6 +109,7 @@ export class RelayStore {
       lastSeenAt: now,
       createdAt: existing?.createdAt ?? now,
       supportedPaperSizes: paperSizes,
+      supportsColor: resolvedSupportsColor,
     };
     this.kiosks.set(machineId, record);
     return record;
@@ -106,8 +118,9 @@ export class RelayStore {
   authenticateKiosk(
     machineId: string,
     authToken?: string,
-    pricingPatch?: Partial<PricingConfig>,
-    supportedPaperSizes?: string[]
+    pricingPatch?: Partial<PricingConfig> & { supportsColor?: boolean; supports_color?: boolean },
+    supportedPaperSizes?: string[],
+    supportsColor?: boolean
   ):
     | { ok: true; kiosk: KioskRecord; newlyRegistered: boolean }
     | { ok: false; reason: string } {
@@ -115,6 +128,14 @@ export class RelayStore {
     if (!cleanId) {
       return { ok: false, reason: 'machine_id is required' };
     }
+
+    const patchColor = (pricingPatch as any)?.supportsColor ?? (pricingPatch as any)?.supports_color;
+    const resolvedSupportsColor =
+      supportsColor !== undefined
+        ? supportsColor
+        : patchColor !== undefined
+        ? patchColor
+        : undefined;
 
     const existing = this.kiosks.get(cleanId);
     if (!existing) {
@@ -130,6 +151,7 @@ export class RelayStore {
         lastSeenAt: now,
         createdAt: now,
         supportedPaperSizes: this.normalizePaperSizes(supportedPaperSizes),
+        supportsColor: resolvedSupportsColor !== undefined ? resolvedSupportsColor : true,
       };
       this.kiosks.set(cleanId, record);
       return { ok: true, kiosk: record, newlyRegistered: true };
@@ -146,6 +168,9 @@ export class RelayStore {
         if (supportedPaperSizes) {
           existing.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
         }
+        if (resolvedSupportsColor !== undefined) {
+          existing.supportsColor = resolvedSupportsColor;
+        }
         return { ok: true, kiosk: existing, newlyRegistered: true };
       }
       return { ok: false, reason: 'Invalid auth_token for machine_id' };
@@ -159,13 +184,17 @@ export class RelayStore {
     if (supportedPaperSizes) {
       existing.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
     }
+    if (resolvedSupportsColor !== undefined) {
+      existing.supportsColor = resolvedSupportsColor;
+    }
     return { ok: true, kiosk: existing, newlyRegistered: false };
   }
 
   updatePricing(
     machineId: string,
-    pricingPatch: Partial<PricingConfig>,
-    supportedPaperSizes?: string[]
+    pricingPatch: Partial<PricingConfig> & { supportsColor?: boolean; supports_color?: boolean },
+    supportedPaperSizes?: string[],
+    supportsColor?: boolean
   ): KioskRecord | undefined {
     const kiosk = this.kiosks.get(machineId);
     if (!kiosk) return undefined;
@@ -173,6 +202,23 @@ export class RelayStore {
     if (supportedPaperSizes) {
       kiosk.supportedPaperSizes = this.normalizePaperSizes(supportedPaperSizes);
     }
+    const patchColor = (pricingPatch as any)?.supportsColor ?? (pricingPatch as any)?.supports_color;
+    if (supportsColor !== undefined) {
+      kiosk.supportsColor = supportsColor;
+    } else if (patchColor !== undefined) {
+      kiosk.supportsColor = patchColor;
+    }
+    kiosk.lastSeenAt = Date.now();
+    return kiosk;
+  }
+
+  updateSupportsColor(
+    machineId: string,
+    supportsColor: boolean
+  ): KioskRecord | undefined {
+    const kiosk = this.kiosks.get(machineId);
+    if (!kiosk) return undefined;
+    kiosk.supportsColor = supportsColor;
     kiosk.lastSeenAt = Date.now();
     return kiosk;
   }

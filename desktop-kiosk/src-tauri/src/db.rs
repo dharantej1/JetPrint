@@ -85,7 +85,8 @@ impl Database {
                 kiosk_mode TEXT NOT NULL DEFAULT 'self_service' CHECK (kiosk_mode IN ('self_service', 'owner')),
                 setup_complete INTEGER NOT NULL DEFAULT 0,
                 exe_fingerprint TEXT,
-                rush_mode INTEGER NOT NULL DEFAULT 0
+                rush_mode INTEGER NOT NULL DEFAULT 0,
+                supports_color INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS print_jobs (
@@ -116,13 +117,14 @@ impl Database {
         )
         .map_err(|e| format!("Failed to initialize SQLite schema: {e}"))?;
 
-        let (has_exe_fingerprint, has_paper_sizes, has_rush_mode): (bool, bool, bool) = conn
+        let (has_exe_fingerprint, has_paper_sizes, has_rush_mode, has_supports_color): (bool, bool, bool, bool) = conn
             .prepare("PRAGMA table_info(app_config)")
             .and_then(|mut stmt| {
                 let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
                 let mut found_exe = false;
                 let mut found_paper = false;
                 let mut found_rush = false;
+                let mut found_supports_color = false;
                 for col in rows.flatten() {
                     if col == "exe_fingerprint" {
                         found_exe = true;
@@ -130,9 +132,11 @@ impl Database {
                         found_paper = true;
                     } else if col == "rush_mode" {
                         found_rush = true;
+                    } else if col == "supports_color" {
+                        found_supports_color = true;
                     }
                 }
-                Ok((found_exe, found_paper, found_rush))
+                Ok((found_exe, found_paper, found_rush, found_supports_color))
             })
             .map_err(|e| format!("Failed to inspect app_config columns: {e}"))?;
 
@@ -157,6 +161,14 @@ impl Database {
             .map_err(|e| format!("Failed to migrate app_config.rush_mode: {e}"))?;
         }
 
+        if !has_supports_color {
+            conn.execute(
+                "ALTER TABLE app_config ADD COLUMN supports_color INTEGER NOT NULL DEFAULT 1",
+                [],
+            )
+            .map_err(|e| format!("Failed to migrate app_config.supports_color: {e}"))?;
+        }
+
         let existing: Option<String> = conn
             .query_row("SELECT machine_id FROM app_config WHERE id = 1", [], |row| {
                 row.get(0)
@@ -170,8 +182,8 @@ impl Database {
             conn.execute(
                 r#"
                 INSERT INTO app_config (
-                    id, machine_id, relay_url, bw_price_paise, color_price_paise, supported_paper_sizes, kiosk_mode, setup_complete, rush_mode
-                ) VALUES (1, ?1, ?2, 200, 1000, '["A4"]', 'self_service', 0, 0)
+                    id, machine_id, relay_url, bw_price_paise, color_price_paise, supported_paper_sizes, kiosk_mode, setup_complete, rush_mode, supports_color
+                ) VALUES (1, ?1, ?2, 200, 1000, '["A4"]', 'self_service', 0, 0, 1)
                 "#,
                 params![machine_id, default_relay],
             )
@@ -227,7 +239,7 @@ impl Database {
             r#"
             SELECT machine_id, relay_url, auth_token, password_hash, recovery_phrase_hash,
                    bw_price_paise, color_price_paise, default_printer, kiosk_mode, setup_complete,
-                   exe_fingerprint, supported_paper_sizes, rush_mode
+                   exe_fingerprint, supported_paper_sizes, rush_mode, supports_color
             FROM app_config WHERE id = 1
             "#,
             [],
@@ -240,6 +252,7 @@ impl Database {
                     .filter(|list| !list.is_empty())
                     .unwrap_or_else(crate::models::default_supported_paper_sizes);
                 let rush_int: i64 = row.get(12).unwrap_or(0);
+                let supports_color_int: i64 = row.get(13).unwrap_or(1);
                 Ok(AppConfig {
                     machine_id: row.get(0)?,
                     relay_url: row.get(1)?,
@@ -254,6 +267,7 @@ impl Database {
                     setup_complete: setup_int != 0,
                     exe_fingerprint: row.get(10)?,
                     rush_mode: rush_int != 0,
+                    supports_color: supports_color_int != 0,
                 })
             },
         )
@@ -383,7 +397,8 @@ impl Database {
                     kiosk_mode = 'self_service',
                     setup_complete = 0,
                     exe_fingerprint = ?2,
-                    rush_mode = 0
+                    rush_mode = 0,
+                    supports_color = 1
                 WHERE id = 1
                 "#,
                 params![new_machine_id, fingerprint],
@@ -415,6 +430,7 @@ impl Database {
         };
         let kiosk_mode = input.kiosk_mode.clone().unwrap_or(current.kiosk_mode);
         let rush_mode = input.rush_mode.unwrap_or(current.rush_mode);
+        let supports_color = input.supports_color.unwrap_or(current.supports_color);
         let supported_paper_sizes = match &input.supported_paper_sizes {
             Some(sizes) if !sizes.is_empty() => sizes.clone(),
             _ => current.supported_paper_sizes,
@@ -439,7 +455,8 @@ impl Database {
                     default_printer = ?5,
                     kiosk_mode = ?6,
                     supported_paper_sizes = ?7,
-                    rush_mode = ?8
+                    rush_mode = ?8,
+                    supports_color = ?9
                 WHERE id = 1
                 "#,
                 params![
@@ -451,6 +468,7 @@ impl Database {
                     kiosk_mode.as_str(),
                     supported_paper_sizes_json,
                     if rush_mode { 1i64 } else { 0i64 },
+                    if supports_color { 1i64 } else { 0i64 },
                 ],
             )
             .map_err(|e| format!("Failed to update settings: {e}"))?;
@@ -781,6 +799,7 @@ mod tests {
                 supported_paper_sizes: None,
                 kiosk_mode: Some(KioskMode::Owner),
                 rush_mode: Some(true),
+                supports_color: None,
             })
             .expect("update_settings");
         assert_eq!(settings.relay_url, "https://relay.example.com");
@@ -790,6 +809,7 @@ mod tests {
         assert_eq!(settings.supported_paper_sizes, vec!["A4".to_string()]);
         assert_eq!(settings.kiosk_mode, KioskMode::Owner);
         assert!(settings.rush_mode);
+        assert!(settings.supports_color);
 
         let printers = db.get_configured_printers().expect("get_configured_printers");
         assert_eq!(printers.len(), 1);
@@ -811,6 +831,7 @@ mod tests {
                 supported_paper_sizes: None,
                 kiosk_mode: None,
                 rush_mode: None,
+                supports_color: None,
             })
             .expect("update_settings");
 
@@ -829,6 +850,7 @@ mod tests {
             supported_paper_sizes: None,
             kiosk_mode: None,
             rush_mode: None,
+            supports_color: None,
         })
         .expect("set relay_url");
         db.update_auth_token(Some("tok_keep")).expect("set token");
@@ -842,6 +864,7 @@ mod tests {
                 supported_paper_sizes: None,
                 kiosk_mode: None,
                 rush_mode: None,
+                supports_color: None,
             })
             .expect("update_settings same relay");
 
@@ -864,6 +887,7 @@ mod tests {
                 supported_paper_sizes: Some(vec!["A4".to_string(), "Letter".to_string(), "Legal".to_string()]),
                 kiosk_mode: None,
                 rush_mode: None,
+                supports_color: None,
             })
             .expect("update supported_paper_sizes");
         assert_eq!(
@@ -992,6 +1016,7 @@ mod tests {
             supported_paper_sizes: None,
             kiosk_mode: Some(KioskMode::Owner),
             rush_mode: None,
+            supports_color: None,
         })
         .expect("update_settings");
         db.insert_job(&PrintJob {
@@ -1031,6 +1056,45 @@ mod tests {
         assert!(!reset.setup_complete);
         assert_eq!(reset.exe_fingerprint.as_deref(), Some("0.1.0:300-400"));
         assert_eq!(db.count_jobs().expect("count_jobs after reset"), 0);
+        assert!(reset.supports_color);
+    }
+
+    #[test]
+    fn persists_and_updates_supports_color() {
+        let db = Database::open_in_memory().expect("in-memory db");
+        let initial = db.get_config().expect("initial config");
+        assert!(initial.supports_color);
+
+        let updated = db
+            .update_settings(&UpdateSettingsInput {
+                relay_url: None,
+                bw_price_paise: None,
+                color_price_paise: None,
+                default_printer: None,
+                supported_paper_sizes: None,
+                kiosk_mode: None,
+                rush_mode: None,
+                supports_color: Some(false),
+            })
+            .expect("update supports_color");
+        assert!(!updated.supports_color);
+
+        let reloaded = db.get_config().expect("reloaded config");
+        assert!(!reloaded.supports_color);
+
+        let re_enabled = db
+            .update_settings(&UpdateSettingsInput {
+                relay_url: None,
+                bw_price_paise: None,
+                color_price_paise: None,
+                default_printer: None,
+                supported_paper_sizes: None,
+                kiosk_mode: None,
+                rush_mode: None,
+                supports_color: Some(true),
+            })
+            .expect("re-enable supports_color");
+        assert!(re_enabled.supports_color);
     }
 
     #[test]

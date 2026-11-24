@@ -88,6 +88,7 @@ fn to_kiosk_state(cfg: AppConfig, state: &AppState) -> KioskState {
         existing_job_count,
         storage_path: state.storage.data_dir().to_string_lossy().to_string(),
         rush_mode: cfg.rush_mode,
+        supports_color: cfg.supports_color,
     }
 }
 
@@ -176,6 +177,7 @@ pub fn update_settings(
     } else if updated.bw_price_paise != prev.bw_price_paise
         || updated.color_price_paise != prev.color_price_paise
         || updated.supported_paper_sizes != prev.supported_paper_sizes
+        || updated.supports_color != prev.supports_color
     {
         state.relay.trigger_reconnect();
     }
@@ -616,6 +618,7 @@ pub fn connect_relay(
             supported_paper_sizes: None,
             kiosk_mode: None,
             rush_mode: None,
+            supports_color: None,
         })?
     } else {
         db.get_config()?

@@ -274,8 +274,10 @@ Under the **Pricing & Paper** tab:
 1. **Per-Page Pricing (₹)**:
    - Set **B&W Price per Page** (default `₹2.00`) and **Color Price per Page** (default `₹10.00`).
    - Prices sync to Cloud Relay instantly so customers see accurate charges on their phones.
-2. **Supported Paper Sizes**:
-   - Toggle enabled sizes (`A4`, `A3`, `Legal`, `Letter`). Disabled sizes are blocked on the mobile upload interface.
+2. **Color Print Offering**:
+   - Toggle **Offer Color Printing to Customers**: When enabled, customers can choose between Black & White and Color. When disabled (e.g. for monochrome-only shops, low ink, or maintenance), the Color option and rate are completely hidden from customer phones, and jobs automatically default to B&W.
+3. **Supported Paper Sizes**:
+   - Toggle enabled sizes (`A4`, `A3`, `Legal`, `Letter`). Disabled sizes are hidden on the mobile upload interface so customers only see available trays.
 
 ### Window & Display: Windowed Mode and Fullscreen Toggle
 

@@ -6,6 +6,7 @@
   const state = {
     pricing: { bwPerPagePaise: 200, colorPerPagePaise: 1000, shopName: '' },
     supportedPaperSizes: ['A4'],
+    supportsColor: true,
     docs: [], // { id, file, pageCount, pdfDoc, objectUrl, settings: { copies, color, duplex, orientation, pagesPerSheet, pageRange, paperSize } }
     activeIndex: 0,
     moreExpanded: false,
@@ -33,6 +34,7 @@
     emptyUploadCard: document.getElementById('emptyUploadCard'),
     bwRateEmpty: document.getElementById('bwRateEmpty'),
     colorRateEmpty: document.getElementById('colorRateEmpty'),
+    colorRateEmptyContainer: document.getElementById('colorRateEmptyContainer'),
     paperSizesEmptyRow: document.getElementById('paperSizesEmptyRow'),
     paperSizesEmpty: document.getElementById('paperSizesEmpty'),
     dropzone: document.getElementById('dropzone'),
@@ -53,6 +55,8 @@
     copiesVal: document.getElementById('copiesVal'),
     btnBw: document.getElementById('btnBw'),
     btnColor: document.getElementById('btnColor'),
+    colorModeContainer: document.getElementById('colorModeContainer'),
+    colorModeGroup: document.getElementById('colorModeGroup'),
     bwRateBtn: document.getElementById('bwRateBtn'),
     colorRateBtn: document.getElementById('colorRateBtn'),
     paperSizeContainer: document.getElementById('paperSizeContainer'),
@@ -631,6 +635,9 @@
 
     // Sync settings controls to active doc
     const s = doc.settings;
+    if (state.supportsColor === false) {
+      s.color = false;
+    }
     if (els.activeDocPaper) {
       els.activeDocPaper.textContent = s.paperSize || 'A4';
     }
@@ -638,6 +645,17 @@
     els.copiesVal.textContent = String(s.copies);
     els.btnBw.classList.toggle('active', !s.color);
     els.btnColor.classList.toggle('active', s.color);
+    if (state.supportsColor === false) {
+      if (els.btnColor) els.btnColor.hidden = true;
+      if (els.colorModeContainer) els.colorModeContainer.hidden = true;
+      const colorRateSpan = els.colorRateEmptyContainer || (els.colorRateEmpty ? els.colorRateEmpty.closest('span') : null);
+      if (colorRateSpan) colorRateSpan.hidden = true;
+    } else {
+      if (els.btnColor) els.btnColor.hidden = false;
+      if (els.colorModeContainer) els.colorModeContainer.hidden = false;
+      const colorRateSpan = els.colorRateEmptyContainer || (els.colorRateEmpty ? els.colorRateEmpty.closest('span') : null);
+      if (colorRateSpan) colorRateSpan.hidden = false;
+    }
     els.btn1Sided.classList.toggle('active', s.duplex === '1-sided');
     els.btn2Sided.classList.toggle('active', s.duplex === '2-sided');
     els.btnPortrait.classList.toggle('active', s.orientation === 'portrait');
@@ -777,6 +795,7 @@
       }
       const data = await res.json();
       state.pricing = data.pricing;
+      state.supportsColor = data.supportsColor ?? data.supports_color ?? true;
       const sizes = data.supportedPaperSizes || data.supported_paper_sizes;
       if (Array.isArray(sizes) && sizes.length > 0) {
         state.supportedPaperSizes = sizes;
@@ -791,6 +810,20 @@
       els.colorRateEmpty.textContent = formatInr(data.pricing.colorPerPagePaise);
       els.bwRateBtn.textContent = formatInr(data.pricing.bwPerPagePaise);
       els.colorRateBtn.textContent = formatInr(data.pricing.colorPerPagePaise);
+
+      const colorRateSpan = els.colorRateEmptyContainer || (els.colorRateEmpty ? els.colorRateEmpty.closest('span') : null);
+      if (colorRateSpan) {
+        colorRateSpan.hidden = !state.supportsColor;
+      }
+      if (els.colorRateEmpty) {
+        els.colorRateEmpty.hidden = !state.supportsColor;
+      }
+      if (els.colorModeContainer) {
+        els.colorModeContainer.hidden = !state.supportsColor;
+      }
+      if (els.btnColor) {
+        els.btnColor.hidden = !state.supportsColor;
+      }
 
       if (data.online) {
         els.kioskStatus.textContent = 'Online';
@@ -1030,6 +1063,7 @@
   });
 
   els.btnColor.addEventListener('click', () => {
+    if (state.supportsColor === false) return;
     const doc = state.docs[state.activeIndex];
     if (doc) {
       doc.settings.color = true;
@@ -1161,6 +1195,11 @@
     els.payBtn.textContent = 'Uploading…';
 
     try {
+      if (state.supportsColor === false) {
+        state.docs.forEach((d) => {
+          if (d.settings) d.settings.color = false;
+        });
+      }
       const form = new FormData();
       form.append('machine_id', machineId);
       form.append('paper_size', state.docs[0]?.settings?.paperSize || 'A4');

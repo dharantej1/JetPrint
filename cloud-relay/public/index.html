@@ -68,7 +68,7 @@
       <section class="card" id="emptyUploadCard" hidden>
         <div class="pricing-bar">
           <span>B&amp;W: <strong id="bwRateEmpty">—</strong>/pg</span>
-          <span>Color: <strong id="colorRateEmpty">—</strong>/pg</span>
+          <span id="colorRateEmptyContainer">Color: <strong id="colorRateEmpty">—</strong>/pg</span>
           <span id="paperSizesEmptyRow">Sizes: <strong id="paperSizesEmpty">A4</strong></span>
         </div>
         <label class="dropzone" id="dropzone" for="fileInput">
@@ -115,9 +115,9 @@
             </div>
           </div>
 
-          <div class="setting-block">
+          <div class="setting-block" id="colorModeContainer">
             <span class="setting-label">Color Mode</span>
-            <div class="segmented" role="group" aria-label="Color Mode">
+            <div class="segmented" id="colorModeGroup" role="group" aria-label="Color Mode">
               <button type="button" class="seg-btn active" id="btnBw">
                 B&amp;W (<span id="bwRateBtn">—</span>)
               </button>

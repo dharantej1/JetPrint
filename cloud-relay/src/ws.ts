@@ -109,7 +109,8 @@ export class KioskWsHub {
     switch (msg.type) {
       case 'register': {
         const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
-        const kiosk = this.store.registerKiosk(msg.machine_id, msg.pricing, supported);
+        const supportsColor = (msg as any).supportsColor ?? (msg as any).supports_color;
+        const kiosk = this.store.registerKiosk(msg.machine_id, msg.pricing, supported, supportsColor);
         this.attachSocket(kiosk.machineId, ws);
         this.send(ws, {
           type: 'registered',
@@ -117,6 +118,9 @@ export class KioskWsHub {
           auth_token: kiosk.authToken,
           pricing: kiosk.pricing,
           supportedPaperSizes: kiosk.supportedPaperSizes,
+          supported_paper_sizes: kiosk.supportedPaperSizes,
+          supportsColor: kiosk.supportsColor ?? true,
+          supports_color: kiosk.supportsColor ?? true,
         });
         this.flushPendingJobs(kiosk.machineId);
         break;
@@ -124,11 +128,13 @@ export class KioskWsHub {
 
       case 'auth': {
         const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
+        const supportsColor = (msg as any).supportsColor ?? (msg as any).supports_color;
         const result = this.store.authenticateKiosk(
           msg.machine_id,
           msg.auth_token,
           msg.pricing,
-          supported
+          supported,
+          supportsColor
         );
         if (!result.ok) {
           this.send(ws, {
@@ -145,6 +151,9 @@ export class KioskWsHub {
           auth_token: result.kiosk.authToken,
           pricing: result.kiosk.pricing,
           supportedPaperSizes: result.kiosk.supportedPaperSizes,
+          supported_paper_sizes: result.kiosk.supportedPaperSizes,
+          supportsColor: result.kiosk.supportsColor ?? true,
+          supports_color: result.kiosk.supportsColor ?? true,
         });
         this.flushPendingJobs(result.kiosk.machineId);
         break;
@@ -160,6 +169,7 @@ export class KioskWsHub {
           return;
         }
         const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
+        const supportsColor = (msg as any).supportsColor ?? (msg as any).supports_color;
         const updated = this.store.updatePricing(
           ws.machineId,
           {
@@ -167,13 +177,17 @@ export class KioskWsHub {
             colorPerPagePaise: msg.colorPerPagePaise,
             shopName: msg.shopName,
           },
-          supported
+          supported,
+          supportsColor
         );
         if (updated) {
           this.send(ws, {
             type: 'pricing_ack',
             pricing: updated.pricing,
             supportedPaperSizes: updated.supportedPaperSizes,
+            supported_paper_sizes: updated.supportedPaperSizes,
+            supportsColor: updated.supportsColor ?? true,
+            supports_color: updated.supportsColor ?? true,
           });
         }
         break;
@@ -192,6 +206,10 @@ export class KioskWsHub {
         const supported = (msg as any).supportedPaperSizes ?? (msg as any).supported_paper_sizes;
         if (Array.isArray(supported)) {
           this.store.updateSupportedPaperSizes(ws.machineId, supported);
+        }
+        const supportsColor = (msg as any).supportsColor ?? (msg as any).supports_color;
+        if (typeof supportsColor === 'boolean') {
+          this.store.updateSupportsColor(ws.machineId, supportsColor);
         }
         break;
       }

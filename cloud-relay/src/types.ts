@@ -15,9 +15,12 @@ export interface KioskRecord {
   lastSeenAt: number;
   createdAt: number;
   supportedPaperSizes?: string[];
+  supportsColor?: boolean;
 }
 
 export type KioskStateRecord = KioskRecord;
+export type Kiosk = KioskRecord;
+export type RegisteredKiosk = KioskRecord;
 
 export interface KioskInfo {
   machine_id: string;
@@ -26,6 +29,8 @@ export interface KioskInfo {
   dev_mode: boolean;
   supportedPaperSizes?: string[];
   supported_paper_sizes?: string[];
+  supportsColor?: boolean;
+  supports_color?: boolean;
 }
 
 export interface PrintSettings {
@@ -104,6 +109,8 @@ export type KioskToRelayMessage =
       pricing?: Partial<PricingConfig>;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'auth';
@@ -112,6 +119,8 @@ export type KioskToRelayMessage =
       pricing?: Partial<PricingConfig>;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'pricing_update';
@@ -120,11 +129,15 @@ export type KioskToRelayMessage =
       shopName?: string;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'paper_sizes_update' | 'config_update';
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'job_ack';
@@ -149,6 +162,8 @@ export type RelayToKioskMessage =
       pricing: PricingConfig;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'auth_ok';
@@ -157,12 +172,16 @@ export type RelayToKioskMessage =
       pricing: PricingConfig;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'pricing_ack';
       pricing: PricingConfig;
       supportedPaperSizes?: string[];
       supported_paper_sizes?: string[];
+      supportsColor?: boolean;
+      supports_color?: boolean;
     }
   | {
       type: 'job_dispatch';

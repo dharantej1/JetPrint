@@ -144,6 +144,7 @@ pub struct AppConfig {
     pub setup_complete: bool,
     pub exe_fingerprint: Option<String>,
     pub rush_mode: bool,
+    pub supports_color: bool,
 }
 
 pub type KioskConfig = AppConfig;
@@ -178,6 +179,8 @@ pub struct KioskState {
     pub storage_path: String,
     #[serde(default)]
     pub rush_mode: bool,
+    #[serde(default = "default_true")]
+    pub supports_color: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +200,7 @@ pub struct UpdateSettingsInput {
     pub supported_paper_sizes: Option<Vec<String>>,
     pub kiosk_mode: Option<KioskMode>,
     pub rush_mode: Option<bool>,
+    pub supports_color: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

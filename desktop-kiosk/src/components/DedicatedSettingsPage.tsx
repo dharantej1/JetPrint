@@ -146,6 +146,9 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
   const [colorRupees, setColorRupees] = useState<string>(
     (kioskState.colorPricePaise / 100).toFixed(2)
   );
+  const [supportsColor, setSupportsColor] = useState<boolean>(
+    kioskState.supportsColor ?? true
+  );
   const [supportedPaperSizes, setSupportedPaperSizes] = useState<string[]>(
     kioskState.supportedPaperSizes?.length > 0
       ? kioskState.supportedPaperSizes
@@ -469,6 +472,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         configuredPrinters,
         rushMode: kioskMode === "owner" ? rushHourAutoPrint : false,
         rushHourAutoPrint: kioskMode === "owner" ? rushHourAutoPrint : false,
+        supportsColor,
       });
 
       // 3. Storage folder update if changed
@@ -487,7 +491,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         if (reconnected) updated = reconnected;
       }
 
-      onStateUpdated({ ...updated, configuredPrinters });
+      onStateUpdated({ ...updated, configuredPrinters, supportsColor });
       setSaveSuccessMessage("Settings saved successfully.");
       setTimeout(() => setSaveSuccessMessage(""), 4000);
     } catch (err) {
@@ -794,7 +798,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
               }}
             >
               <Printer size={18} />
-              <span>Printers &amp; Pools</span>
+              <span>Printers &amp; Capabilities</span>
             </button>
 
             <button
@@ -821,7 +825,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
               }}
             >
               <DollarSign size={18} />
-              <span>Pricing &amp; Paper</span>
+              <span>Pricing, Paper &amp; Color</span>
             </button>
 
             <button
@@ -1854,7 +1858,7 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                   }}
                 >
                   <DollarSign size={22} color="#818cf8" />
-                  <span>Pricing &amp; Paper Sizes</span>
+                  <span>Pricing, Paper &amp; Color</span>
                 </h2>
                 <p
                   style={{
@@ -1864,8 +1868,69 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                     marginBottom: 0,
                   }}
                 >
-                  Set per-page pricing for customers and configure accepted paper sizes.
+                  Set per-page pricing for customers, configure color availability, and accepted paper sizes.
                 </p>
+              </div>
+
+              {/* Dedicated Card: Color Print Offering */}
+              <div
+                style={{
+                  padding: "20px",
+                  borderRadius: "var(--radius-md)",
+                  background: "rgba(17, 24, 39, 0.8)",
+                  border: "1px solid var(--border-subtle)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <h3
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 600,
+                      margin: 0,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    Color Print Offering
+                  </h3>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-secondary)",
+                      marginTop: 4,
+                      marginBottom: 0,
+                    }}
+                  >
+                    When disabled, customers cannot order color prints from their phones, and only B&amp;W printing is offered.
+                  </p>
+                </div>
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    cursor: "pointer",
+                    fontSize: 14,
+                    fontWeight: 600,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={supportsColor}
+                    onChange={(e) => setSupportsColor(e.target.checked)}
+                    style={{
+                      width: 22,
+                      height: 22,
+                      accentColor: "var(--accent-primary, #6366f1)",
+                      cursor: "pointer",
+                    }}
+                  />
+                  <span>Offer Color Printing to Customers</span>
+                </label>
               </div>
 
               {/* Price per page form */}
@@ -1933,17 +1998,41 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                     display: "flex",
                     flexDirection: "column",
                     gap: 12,
+                    opacity: supportsColor ? 1 : 0.5,
+                    transition: "opacity 0.2s ease",
                   }}
                 >
-                  <label className="form-label" style={{ marginBottom: 0 }}>
-                    Color Price per Page (₹)
-                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 6,
+                    }}
+                  >
+                    <label className="form-label" style={{ marginBottom: 0 }}>
+                      Color Price per Page (₹)
+                    </label>
+                    {!supportsColor && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: "#f87171",
+                          fontWeight: 500,
+                        }}
+                      >
+                        (Color printing disabled for customer uploads)
+                      </span>
+                    )}
+                  </div>
                   <div className="input-with-vk" data-vk-field="colorRupees">
                     <input
                       type="number"
                       inputMode="decimal"
                       step="0.5"
                       min="0"
+                      disabled={!supportsColor}
                       value={colorRupees}
                       onChange={(e) => setColorRupees(e.target.value)}
                       placeholder="e.g. 10.00"
@@ -1951,7 +2040,9 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                     <button
                       type="button"
                       className="input-vk-btn"
+                      disabled={!supportsColor}
                       onClick={() =>
+                        supportsColor &&
                         setActiveVk(
                           activeVk?.field === "colorRupees"
                             ? null
@@ -1986,12 +2077,12 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                 }}
               >
                 <div>
-                  <label className="form-label" style={{ marginBottom: 2 }}>
+                  <label className="form-label" style={{ display: "block", marginBottom: 4 }}>
                     Supported Paper Sizes
                   </label>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
                     Select paper sizes your shop has loaded and ready to print.
-                  </span>
+                  </p>
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -2048,8 +2139,10 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                     Customer Price Preview (Sample 5-page PDF)
                   </span>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                    B&amp;W: ₹{(parseFloat(bwRupees || "0") * 5).toFixed(2)} • Color: ₹
-                    {(parseFloat(colorRupees || "0") * 5).toFixed(2)}
+                    B&amp;W: ₹{(parseFloat(bwRupees || "0") * 5).toFixed(2)} • Color:{" "}
+                    {supportsColor
+                      ? `₹${(parseFloat(colorRupees || "0") * 5).toFixed(2)}`
+                      : "Disabled"}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -2069,10 +2162,13 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                     style={{
                       padding: "4px 10px",
                       borderRadius: 999,
-                      background: "rgba(99, 102, 241, 0.15)",
-                      color: "#818cf8",
+                      background: supportsColor
+                        ? "rgba(99, 102, 241, 0.15)"
+                        : "rgba(148, 163, 184, 0.1)",
+                      color: supportsColor ? "#818cf8" : "var(--text-muted)",
                       fontSize: 12,
                       fontWeight: 600,
+                      textDecoration: supportsColor ? "none" : "line-through",
                     }}
                   >
                     Color ₹{colorRupees} / page
