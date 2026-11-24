@@ -231,6 +231,31 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
     }
   }, [configuredPrinters, defaultPrinterName, selectedPrinterKey]);
 
+  // Auto-resolve reconnecting message when relay status updates
+  useEffect(() => {
+    if (saveSuccessMessage === "Reconnecting to relay...") {
+      if (kioskState.relayStatus === "connected" || kioskState.relayConnected) {
+        setSaveSuccessMessage("Relay connected.");
+        const t = setTimeout(() => {
+          setSaveSuccessMessage((prev) =>
+            prev === "Relay connected." ? "" : prev
+          );
+        }, 3000);
+        return () => clearTimeout(t);
+      } else if (kioskState.relayStatus === "error") {
+        setSaveErrorMessage(
+          kioskState.relayMessage || "Relay connection failed."
+        );
+        setSaveSuccessMessage("");
+      }
+    }
+  }, [
+    kioskState.relayStatus,
+    kioskState.relayConnected,
+    saveSuccessMessage,
+    kioskState.relayMessage,
+  ]);
+
   // Relay state
   const [relayUrl, setRelayUrl] = useState<string>(kioskState.relayUrl);
   const [reconnectingRelay, setReconnectingRelay] = useState(false);
@@ -482,6 +507,11 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
       const next = await resetMachineIdentity();
       onStateUpdated(next);
       setSaveSuccessMessage("Machine identity re-registered successfully.");
+      setTimeout(() => {
+        setSaveSuccessMessage((prev) =>
+          prev === "Machine identity re-registered successfully." ? "" : prev
+        );
+      }, 4000);
     } catch (err) {
       setSaveErrorMessage(
         typeof err === "string" ? err : "Failed to re-register machine."
@@ -504,10 +534,16 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
         relayMessage: "Connecting to relay...",
       });
       setSaveSuccessMessage("Reconnecting to relay...");
+      setTimeout(() => {
+        setSaveSuccessMessage((prev) =>
+          prev === "Reconnecting to relay..." ? "" : prev
+        );
+      }, 6000);
     } catch (err) {
       setSaveErrorMessage(
         typeof err === "string" ? err : "Relay connection failed."
       );
+      setSaveSuccessMessage("");
     } finally {
       setTimeout(() => setReconnectingRelay(false), 600);
     }
@@ -640,7 +676,11 @@ export const DedicatedSettingsPage: React.FC<DedicatedSettingsPageProps> = ({
                 borderRadius: 999,
               }}
             >
-              <CheckCircle2 size={15} />
+              {saveSuccessMessage === "Reconnecting to relay..." ? (
+                <Loader2 size={15} className="spin" />
+              ) : (
+                <CheckCircle2 size={15} />
+              )}
               {saveSuccessMessage}
             </span>
           )}

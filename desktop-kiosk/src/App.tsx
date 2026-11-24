@@ -709,8 +709,11 @@ const KioskApp: React.FC = () => {
             className={`status-pill ${isRelayError ? "error" : ""}`}
             title={relayAuthError ?? relayMessage ?? undefined}
           >
-            <span className={`status-dot ${relayDotClass}`} />
-            {isRelayOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+            {isRelayOnline ? (
+              <Wifi size={16} className={`relay-wifi-icon ${relayDotClass}`} />
+            ) : (
+              <WifiOff size={16} className={`relay-wifi-icon ${relayDotClass}`} />
+            )}
             <span>{relayLabel}</span>
           </div>
 

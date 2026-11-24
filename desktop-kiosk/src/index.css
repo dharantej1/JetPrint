@@ -130,35 +130,45 @@ textarea:focus {
 }
 
 .status-pill {
+  height: 38px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
   border: 1px solid var(--border-subtle);
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.status-pill:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.09);
 }
 
-.status-dot.online {
-  background: var(--success);
-  box-shadow: 0 0 8px var(--success);
+.relay-wifi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
 }
 
-.status-dot.offline {
-  background: var(--warning);
+.relay-wifi-icon.online {
+  color: #10b981;
+  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.7));
 }
 
-.status-dot.error {
-  background: var(--danger);
-  box-shadow: 0 0 8px var(--danger);
+.relay-wifi-icon.offline {
+  color: #f59e0b;
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+}
+
+.relay-wifi-icon.error {
+  color: #ef4444;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.7));
 }
 
 .status-pill.error {
