@@ -40,6 +40,7 @@
     dropzone: document.getElementById('dropzone'),
     workspaceSection: document.getElementById('workspaceSection'),
     docCounter: document.getElementById('docCounter'),
+    docConfigBadges: document.getElementById('docConfigBadges'),
     activeDocName: document.getElementById('activeDocName'),
     deleteDocBtn: document.getElementById('deleteDocBtn'),
     prevDocBtn: document.getElementById('prevDocBtn'),
@@ -103,6 +104,32 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function buildConfigBadgesHtml(settings = {}, pageCount = 1) {
+    const isColor = Boolean(settings.color || settings.colorMode === 'color');
+    const paper = settings.paperSize || 'A4';
+    const copies = Number(settings.copies) || 1;
+    const duplex = settings.duplex || '1-sided';
+    const pps = Number(settings.pagesPerSheet) || 1;
+    const range = settings.pageRange && settings.pageRange.toLowerCase() !== 'all' ? settings.pageRange : null;
+
+    const badges = [];
+    badges.push(`<span class="config-badge ${isColor ? 'config-badge-color' : 'config-badge-bw'}">${isColor ? 'Color' : 'B&W'}</span>`);
+    badges.push(`<span class="config-badge config-badge-paper">${escapeHtml(paper)}</span>`);
+    badges.push(`<span class="config-badge ${duplex === '2-sided' ? 'config-badge-duplex' : 'config-badge-duplex-single'}">${duplex === '2-sided' ? '2-Sided' : '1-Sided'}</span>`);
+    if (copies > 1) {
+      badges.push(`<span class="config-badge config-badge-copies">${copies} Copies</span>`);
+    } else {
+      badges.push(`<span class="config-badge config-badge-copies-single">1 Copy</span>`);
+    }
+    if (pps > 1) {
+      badges.push(`<span class="config-badge config-badge-nup">${pps}-on-1</span>`);
+    }
+    if (range) {
+      badges.push(`<span class="config-badge config-badge-range">p.${escapeHtml(range)}</span>`);
+    }
+    return badges.join('');
   }
 
   function showError(msg) {
@@ -295,12 +322,17 @@
           ? `<ul class="otp-docs-list">
               ${files
                 .map((f) => {
-                  const colorLabel = f.colorMode === 'color' ? 'Color' : 'B/W';
                   const copies = f.copies || 1;
                   const pages = f.pageCount || 1;
+                  const badgesHtml = buildConfigBadgesHtml(f, pages);
                   return `<li class="otp-doc-item">
-                    <span class="otp-doc-name">${escapeHtml(f.filename || 'Document')}</span>
-                    <span class="otp-doc-meta">${pages} pg • ${copies}x • ${colorLabel}</span>
+                    <div class="otp-doc-header">
+                      <span class="otp-doc-name">${escapeHtml(f.filename || 'Document')}</span>
+                      <span class="otp-doc-pages">${pages} ${pages === 1 ? 'page' : 'pages'}</span>
+                    </div>
+                    <div class="otp-doc-badges">
+                      ${badgesHtml}
+                    </div>
                   </li>`;
                 })
                 .join('')}
@@ -371,8 +403,12 @@
             pageCount: f.page_count || 1,
             copies: f.settings?.copies || 1,
             colorMode: f.settings?.color ? 'color' : 'bw',
+            color: Boolean(f.settings?.color),
+            duplex: f.settings?.duplex || '1-sided',
             orientation: f.settings?.orientation || 'portrait',
+            pagesPerSheet: f.settings?.pagesPerSheet || 1,
             pageRange: f.settings?.pageRange || 'all',
+            paperSize: f.settings?.paperSize || 'A4',
           }));
           changed = true;
         }
@@ -638,9 +674,7 @@
     if (state.supportsColor === false) {
       s.color = false;
     }
-    if (els.activeDocPaper) {
-      els.activeDocPaper.textContent = s.paperSize || 'A4';
-    }
+
     renderPaperSizeSelector(doc);
     els.copiesVal.textContent = String(s.copies);
     els.btnBw.classList.toggle('active', !s.color);
@@ -671,6 +705,10 @@
     els.pageRangeInput.hidden = isAll;
     if (!isAll) {
       els.pageRangeInput.value = s.pageRange;
+    }
+
+    if (els.docConfigBadges) {
+      els.docConfigBadges.innerHTML = buildConfigBadgesHtml(s, doc.pageCount);
     }
 
     // Grand totals
@@ -947,8 +985,12 @@
       pageCount: d.pageCount || 1,
       copies: d.settings?.copies || 1,
       colorMode: d.settings?.color ? 'color' : 'bw',
+      color: Boolean(d.settings?.color),
+      duplex: d.settings?.duplex || '1-sided',
       orientation: d.settings?.orientation || 'portrait',
+      pagesPerSheet: d.settings?.pagesPerSheet || 1,
       pageRange: d.settings?.pageRange || 'all',
+      paperSize: d.settings?.paperSize || 'A4',
     }));
     addActiveOtp(jobId, otp, machineId, files);
     state.docs.forEach((d) => URL.revokeObjectURL(d.objectUrl));

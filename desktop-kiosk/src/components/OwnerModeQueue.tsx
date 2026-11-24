@@ -427,14 +427,6 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                     </span>
                     <div className="job-spec-chips">
                       <span className="spec-chip">
-                        {job.copies} {job.copies === 1 ? "copy" : "copies"}
-                      </span>
-                      <span
-                        className={`spec-chip ${job.color ? "color-chip" : "bw-chip"}`}
-                      >
-                        {job.color ? "🎨 Color" : "📄 B/W"}
-                      </span>
-                      <span className="spec-chip">
                         {job.files.length} {job.files.length === 1 ? "file" : "files"}
                       </span>
                       {timeLabel && (
@@ -564,24 +556,66 @@ export const OwnerModeQueue: React.FC<OwnerModeQueueProps> = ({
                       defaultPrinterName ||
                       "Auto (Pool)";
 
+                    const s = file.settings;
+                    const isColor = s?.color !== undefined ? s.color : job.color;
+                    const paperSize = s?.paperSize || (s as any)?.paper_size || "A4";
+                    const copies = s?.copies || job.copies || 1;
+                    const duplex = s?.duplex || "1-sided";
+                    const pagesPerSheet = s?.pagesPerSheet || (s as any)?.pages_per_sheet || 1;
+                    const pageRange = s?.pageRange || (s as any)?.page_range || "all";
+                    const isCustomRange = pageRange && pageRange.toLowerCase() !== "all";
+
                     return (
                       <div
                         key={file.fileId || idx}
                         className="owner-file-item"
                       >
                         <div className="owner-file-details">
-                          <FileText size={15} className="owner-file-icon" />
-                          <span
-                            className="owner-file-name-text"
-                            title={file.filename}
-                          >
-                            {file.filename || `File ${idx + 1}`}
-                          </span>
-                          {file.pages ? (
-                            <span className="owner-file-pages-badge">
-                              {file.pages} {file.pages === 1 ? "page" : "pages"}
+                          <div className="owner-file-main-info">
+                            <FileText size={15} className="owner-file-icon" />
+                            <span
+                              className="owner-file-name-text"
+                              title={file.filename}
+                            >
+                              {file.filename || `File ${idx + 1}`}
                             </span>
-                          ) : null}
+                            {file.pages ? (
+                              <span className="owner-file-pages-badge">
+                                {file.pages} {file.pages === 1 ? "page" : "pages"}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="owner-file-badges-row">
+                            <span
+                              className={`config-badge ${isColor ? "config-badge-color" : "config-badge-bw"}`}
+                            >
+                              {isColor ? "Color" : "B&W"}
+                            </span>
+                            <span className="config-badge config-badge-paper">
+                              {paperSize}
+                            </span>
+                            <span
+                              className={`config-badge ${duplex === "2-sided" ? "config-badge-duplex" : "config-badge-duplex-single"}`}
+                            >
+                              {duplex === "2-sided" ? "2-Sided" : "1-Sided"}
+                            </span>
+                            <span
+                              className={`config-badge ${copies > 1 ? "config-badge-copies" : "config-badge-copies-single"}`}
+                            >
+                              {copies} {copies === 1 ? "Copy" : "Copies"}
+                            </span>
+                            {pagesPerSheet > 1 && (
+                              <span className="config-badge config-badge-nup">
+                                {pagesPerSheet}-on-1
+                              </span>
+                            )}
+                            {isCustomRange && (
+                              <span className="config-badge config-badge-range">
+                                p.{pageRange}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="owner-file-printer-box">
