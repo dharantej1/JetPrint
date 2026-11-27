@@ -845,7 +845,7 @@ pub async fn sync_active_jobs(
     let url = format!("{}/api/machines/{}/active-jobs", relay_url, config.machine_id);
 
     let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 

@@ -376,6 +376,12 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.pricing-grid.single-item {
+  grid-template-columns: 1fr;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
 .price-chip {
   background: rgba(15, 23, 42, 0.72);
   border: 1px solid var(--border-subtle);
@@ -1577,6 +1583,10 @@ textarea:focus {
   .pricing-grid {
     max-width: 460px;
     gap: 16px;
+  }
+
+  .pricing-grid.single-item {
+    max-width: 240px;
   }
 
   .price-chip {

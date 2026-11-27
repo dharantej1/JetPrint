@@ -7,6 +7,7 @@ interface QrPanelProps {
   machineId: string;
   bwPricePaise: number;
   colorPricePaise: number;
+  supportsColor?: boolean;
   onNavigateToOtp?: () => void;
 }
 
@@ -20,6 +21,7 @@ export const QrPanel: React.FC<QrPanelProps> = ({
   machineId,
   bwPricePaise,
   colorPricePaise,
+  supportsColor = true,
   onNavigateToOtp,
 }) => {
   const cleanRelay = relayUrl.replace(/\/+$/, "") || "http://localhost:3000";
@@ -49,21 +51,23 @@ export const QrPanel: React.FC<QrPanelProps> = ({
         />
       </div>
 
-      <div className="pricing-grid">
+      <div className={`pricing-grid ${!supportsColor ? "single-item" : ""}`}>
         <div className="price-chip">
           <span className="price-label">Black &amp; White</span>
           <span className="price-value">
             {formatPaise(bwPricePaise)} <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>/ page</span>
           </span>
         </div>
-        <div className="price-chip">
-          <span className="price-label" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <Sparkles size={12} color="#818cf8" /> Color
-          </span>
-          <span className="price-value">
-            {formatPaise(colorPricePaise)} <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>/ page</span>
-          </span>
-        </div>
+        {supportsColor && (
+          <div className="price-chip">
+            <span className="price-label" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Sparkles size={12} color="#818cf8" /> Color
+            </span>
+            <span className="price-value">
+              {formatPaise(colorPricePaise)} <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>/ page</span>
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="steps-row">

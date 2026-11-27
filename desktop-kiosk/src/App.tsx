@@ -50,6 +50,7 @@ const FALLBACK_STATE: KioskState = {
   storagePath: "",
   rushMode: false,
   rushHourAutoPrint: false,
+  supportsColor: true,
 };
 
 const formatPrinterFleetStatus = (
@@ -178,6 +179,8 @@ const KioskApp: React.FC = () => {
   kioskModeRef.current = kioskState.kioskMode;
   const selectedDateRef = useRef(selectedDate);
   selectedDateRef.current = selectedDate;
+  const relayConnectedRef = useRef(kioskState.relayConnected);
+  relayConnectedRef.current = kioskState.relayConnected;
 
   // Updater state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -286,7 +289,7 @@ const KioskApp: React.FC = () => {
     const date =
       dateOverride === undefined ? selectedDateRef.current : dateOverride;
     try {
-      if (kioskModeRef.current === "owner") {
+      if (kioskModeRef.current === "owner" && relayConnectedRef.current) {
         await syncActiveJobs().catch(() => {});
       }
       const nextJobs = await listJobs(undefined, date ?? undefined);
@@ -401,7 +404,9 @@ const KioskApp: React.FC = () => {
       setRelayMessage(state.relayMessage);
       setRelayAuthError(state.relayAuthError);
       if (state.kioskMode === "owner") {
-        await syncActiveJobs().catch(() => {});
+        if (state.relayConnected) {
+          await syncActiveJobs().catch(() => {});
+        }
         const nextJobs = await listJobs(undefined, selectedDateRef.current ?? undefined);
         setJobs(nextJobs);
         if (isRushActive) {
@@ -443,6 +448,7 @@ const KioskApp: React.FC = () => {
         }
       },
       onRelayStatus: (event) => {
+        relayConnectedRef.current = event.connected;
         setRelayStatus(event.status);
         setRelayMessage(event.message);
         setRelayAuthError(event.authError);
@@ -453,6 +459,9 @@ const KioskApp: React.FC = () => {
           relayMessage: event.message,
           relayAuthError: event.authError,
         }));
+        if (event.connected && kioskModeRef.current === "owner") {
+          refreshJobsRef.current();
+        }
       },
     })
       .then((fns) => {
@@ -790,6 +799,7 @@ const KioskApp: React.FC = () => {
               machineId={kioskState.machineId}
               bwPricePaise={kioskState.bwPricePaise}
               colorPricePaise={kioskState.colorPricePaise}
+              supportsColor={kioskState.supportsColor ?? true}
             />
             <OwnerModeQueue
               jobs={jobs}
@@ -812,6 +822,7 @@ const KioskApp: React.FC = () => {
               machineId={kioskState.machineId}
               bwPricePaise={kioskState.bwPricePaise}
               colorPricePaise={kioskState.colorPricePaise}
+              supportsColor={kioskState.supportsColor ?? true}
             />
             <OtpKeypad
               otp={otp}
@@ -836,6 +847,7 @@ const KioskApp: React.FC = () => {
             machineId={kioskState.machineId}
             bwPricePaise={kioskState.bwPricePaise}
             colorPricePaise={kioskState.colorPricePaise}
+            supportsColor={kioskState.supportsColor ?? true}
             onNavigateToOtp={() => setActiveVerticalView("otp")}
           />
         ) : (
